@@ -33,6 +33,11 @@ type LocatedTextSnippetDiagnostic = {
 	diagnostic: TextSnippetDiagnostic;
 }
 
+type LocatedCorrection = {
+	range: vscode.Range;
+	toInsert: string;
+}
+
 type DocumentAnalysis = {
 	snippetDiagnostics: Map<TextSnippet, TextSnippetDiagnostic>;
 	document: vscode.TextDocument;
@@ -43,12 +48,16 @@ class LMWritingTool {
 	diagnosticsCache: Map<string, TextSnippetDiagnostic>;
 	textSplitterFunction: (text: string) => TextSnippet[];
 	numRequests: number;
+	dc: vscode.DiagnosticCollection;
+	corrections: Map<string, LocatedCorrection[]>;
 
-	constructor(lm: vscode.LanguageModelChat, textSplitterFunction = splitTextByLine) {
+	constructor(lm: vscode.LanguageModelChat, textSplitterFunction = splitTextByLine, dc: vscode.DiagnosticCollection) {
 		this.lm = lm;
 		this.diagnosticsCache = new Map();
 		this.textSplitterFunction = textSplitterFunction;
 		this.numRequests = 0;
+		this.dc = dc;
+		this.corrections = new Map();
 	}
 
 	async getTextSnippetDiagnostic(text: string): Promise<TextSnippetDiagnostic> {
@@ -101,7 +110,7 @@ class LMWritingTool {
 		const snippets = splitTextByLine(text);
 		const snippetTexts = [...new Set(snippets.map(s => s.text))];
 		await Promise.all(snippetTexts.map((ts) => this.getSnippetDiagnostics(ts)));
-
+		const newCorrections: LocatedCorrection[] = [];
 		const diagnostics: vscode.Diagnostic[] = [];
 		for (const snippet of snippets) {
 			const diagnostic = this.diagnosticsCache.get(snippet.text);
@@ -115,13 +124,33 @@ class LMWritingTool {
 					const range = new vscode.Range(start, end);
 					const text = correction.toInsert=== "" ? "Remove" : `Change to: ${correction.toInsert}`;
 					const diagnostic = new vscode.Diagnostic(range, text, vscode.DiagnosticSeverity.Information);
+					newCorrections.push({ range, toInsert: correction.toInsert });
+					diagnostic.source = 'LM Writing Tool';
 					diagnostics.push(diagnostic);
 				}
 			}
 		}
+		this.dc.set(document.uri, diagnostics);
+		this.corrections.set(document.uri.toString(), newCorrections);
 		return diagnostics;
 	}
 
+	getDiagnostics(document: vscode.TextDocument, range: vscode.Range): vscode.Diagnostic[] {
+		const diagnosticsInDocument = this.dc.get(document.uri);
+		if (!diagnosticsInDocument) {
+			return [];
+		}
+		const diagnostics = diagnosticsInDocument.filter(d => d.range.intersection(range));
+		return diagnostics;
+	}
+	getCorrections(document: vscode.TextDocument, range: vscode.Range): LocatedCorrection[] {
+		const corrections = this.corrections.get(document.uri.toString());
+		if (!corrections) {
+			return [];
+		}
+		const correctionsInRange = corrections.filter(c => c.range.intersection(range));
+		return correctionsInRange;
+	}
 }
 
 class WritingToolCodeActionsProvider implements vscode.CodeActionProvider {
@@ -135,6 +164,14 @@ class WritingToolCodeActionsProvider implements vscode.CodeActionProvider {
 		//throw new Error('Method not implemented.');
 		const actions: vscode.CodeAction[] = [];
 		const diagnostics = this.writingTool.getCachedSnippetDiagnosticsAtLocation(document, range.start);
+		const changesInRange = this.writingTool.getCorrections(document, range);
+		for (const change of changesInRange) {
+			const a = new vscode.CodeAction(change.toInsert === "" ? "Remove" : `Change to: ${change.toInsert}`, vscode.CodeActionKind.QuickFix);
+			const edit = new vscode.WorkspaceEdit();
+			edit.replace(document.uri, change.range, change.toInsert);
+			a.edit = edit;
+			actions.push(a);
+		}
 		for (const diagnostic of diagnostics) {
 			if (diagnostic.diagnostic.correctedVersion) {
 				const a = new vscode.CodeAction(`Correct to: ${diagnostic.diagnostic.correctedVersion}`, vscode.CodeActionKind.QuickFix);
@@ -184,7 +221,7 @@ export async function activate(context: vscode.ExtensionContext) {
 				}
 				model = matchingModel;
 			}
-			_lmwt = new LMWritingTool(model);
+			_lmwt = new LMWritingTool(model, splitTextByLine, dc);
 		}
 		return _lmwt;
 	}

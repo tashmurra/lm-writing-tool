@@ -1,4 +1,4 @@
-import { diffChars } from "diff";
+import { diffChars, diffWords } from "diff";
 
 interface Correction {
     start: number;
@@ -13,7 +13,7 @@ interface Correction {
  * @returns List of corrections.
  */
 export function calculateCorrections(original: string, corrected: string): Correction[] {
-    const diffs = diffChars(original, corrected);
+    const diffs = diffWords(original, corrected);
     const corrections: Correction[] = [];
     let currentIndex = 0;
     let pendingRemoval: Correction | null = null;

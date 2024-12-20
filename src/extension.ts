@@ -3,6 +3,9 @@
 import { disconnect } from 'process';
 import { json } from 'stream/consumers';
 import * as vscode from 'vscode';
+import * as Diff from 'diff';
+import { getLineCol, calculateCorrections } from './correctionDiffing';
+import { OllamaLLM } from './ollamaIntegration';
 
 type TextSnippet = {
 	text: string;
@@ -50,9 +53,7 @@ class LMWritingTool {
 
 	async getTextSnippetDiagnostic(text: string): Promise<TextSnippetDiagnostic> {
 		const response = await this.lm.sendRequest([
-			vscode.LanguageModelChatMessage.User(`
-				Proofread the following message. If it is gramatically correct, just respond with the word "Correct". If it is gramatically incorrect, respond with "Correction: ", followed by the corrected version, no extra text:
-				`),
+			vscode.LanguageModelChatMessage.User(`Proofread the following message. If it is gramatically correct, just respond with the word "Correct". If it is gramatically incorrect or has spelling mistakes, respond with "Correction: ", followed by the corrected version, no extra text:`),
 			vscode.LanguageModelChatMessage.User(text)
 		]);
 		this.numRequests++;
@@ -60,11 +61,15 @@ class LMWritingTool {
 		for await (const message of response.text) {
 			resp += message;
 		}
-		if (resp === 'Correct') {
-			return {};
-		} else {
+		console.info(`Response: ${resp}`);
+		if (resp.startsWith('Correction: ')) {
 			const correctedVersion = resp.slice('Correction: '.length);
 			return { correctedVersion };
+		}else if (resp.startsWith('Correct') ) {
+			return {};
+		} else {
+			console.warn(`Unexpected response: ${resp}`);
+			return {};
 		}
 	}
 	async getSnippetDiagnostics(snippet: string): Promise<TextSnippetDiagnostic> {
@@ -101,13 +106,17 @@ class LMWritingTool {
 		for (const snippet of snippets) {
 			const diagnostic = this.diagnosticsCache.get(snippet.text);
 			if (diagnostic?.correctedVersion) {
-				diagnostics.push({
-					code: '',
-					message: `Suggested correction: ${diagnostic.correctedVersion}`,
-					range: snippet.range,
-					severity: vscode.DiagnosticSeverity.Information,
-					source: 'lm-writing-tool',
-				});
+				const corrections = calculateCorrections(snippet.text, diagnostic.correctedVersion);
+				for (const correction of corrections) {
+					const { line: startLineRelative, col: startColRelative } = getLineCol(snippet.text, correction.start);
+					const { line: endLineRelative, col: endColRelative } = getLineCol(snippet.text, correction.end);
+					const start = snippet.range.start.translate(startLineRelative, startColRelative);
+					const end = snippet.range.start.translate(endLineRelative, endColRelative);
+					const range = new vscode.Range(start, end);
+					const text = correction.toInsert=== "" ? "Remove" : `Change to: ${correction.toInsert}`;
+					const diagnostic = new vscode.Diagnostic(range, text, vscode.DiagnosticSeverity.Information);
+					diagnostics.push(diagnostic);
+				}
 			}
 		}
 		return diagnostics;
@@ -157,11 +166,24 @@ export async function activate(context: vscode.ExtensionContext) {
 				vendor: 'copilot',
 				family: 'gpt-4o-mini'
 			});
+			models.push(new OllamaLLM());
 			if (models.length === 0) {
-				vscode.window.showErrorMessage('No model available');
-				throw new Error('No model available');
+				throw new Error("No models found.");
 			}
-			const model = models[0];
+			let model= models[0];
+			if(models.length > 1){
+				function getQuickPickItem(m: vscode.LanguageModelChat){
+					return `${m.vendor}: ${m.family} ${m.version}`;
+				}
+				const response = await vscode.window.showQuickPick(models.map(getQuickPickItem),{
+					placeHolder: "Select model"
+				});
+				const matchingModel = models.find(m => getQuickPickItem(m) === response);
+				if(!matchingModel){
+					throw new Error("No model selected.");
+				}
+				model = matchingModel;
+			}
 			_lmwt = new LMWritingTool(model);
 		}
 		return _lmwt;
@@ -169,42 +191,48 @@ export async function activate(context: vscode.ExtensionContext) {
 	const dc = vscode.languages.createDiagnosticCollection();
 	context.subscriptions.push(dc);
 
-	// Save mapping from text snippets to LM responses
-	// The command has been defined in the package.json file
-	// Now provide the implementation of the command with registerCommand
-	// The commandId parameter must match the command field in package.json
-	const disposable = vscode.commands.registerTextEditorCommand('lm-writing-tool.checkCurrentDocument', async (te) => {
-	});
-
-	context.subscriptions.push(disposable);
-
-	const textCheckJobs = new Map<vscode.TextEditor, NodeJS.Timeout>();
-
-	const startTextCheckDisposable = vscode.commands.registerTextEditorCommand('lm-writing-tool.startTextCheckCurrentDocument', async (te) => {
-
-		const lmwt = await getLMWT();
-		const openTextDocument = te.document;
-		textCheckJobs.set(te, setInterval(async () => {
-			vscode.window.showInformationMessage('Checking text');
+	context.subscriptions.push(
+		vscode.commands.registerTextEditorCommand('lm-writing-tool.checkCurrentDocument', async (te) => {
+			const lmwt = await getLMWT();
+			const openTextDocument = te.document;
+			console.info('Checking document');
 			const text = openTextDocument.getText();
 			const diagnostics = await lmwt.checkDocument(openTextDocument);
 			dc.set(openTextDocument.uri, diagnostics);
-		}, 5000));
-
-		context.subscriptions.push(vscode.languages.registerCodeActionsProvider('*', new WritingToolCodeActionsProvider(lmwt), {}));
-	});
-
-	context.subscriptions.push(startTextCheckDisposable);
+			console.info(`Number of requests: ${lmwt.numRequests}`);
+		})
+	);
 
 
-	const stopTextCheckDisposable = vscode.commands.registerTextEditorCommand('lm-writing-tool.stopTextCheckCurrentDocument', async (te) => {
-		const interval = textCheckJobs.get(te);
-		if (interval) {
-			clearInterval(interval);
-			textCheckJobs.delete(te);
-		}
-	});
-	context.subscriptions.push(stopTextCheckDisposable);
+	const textCheckJobs = new Map<vscode.TextEditor, NodeJS.Timeout>();
+
+	context.subscriptions.push(
+		vscode.commands.registerTextEditorCommand('lm-writing-tool.startTextCheckCurrentDocument', async (te) => {
+			const lmwt = await getLMWT();
+			const openTextDocument = te.document;
+			textCheckJobs.set(te, setInterval(async () => {
+				console.info('Checking document');
+				const text = openTextDocument.getText();
+				const diagnostics = await lmwt.checkDocument(openTextDocument);
+				dc.set(openTextDocument.uri, diagnostics);
+				console.info(`Number of requests in this session: ${lmwt.numRequests}`);
+			}, 5000));
+
+			context.subscriptions.push(vscode.languages.registerCodeActionsProvider('*', new WritingToolCodeActionsProvider(lmwt), {}));
+		})
+	);
+
+
+
+	context.subscriptions.push(
+		vscode.commands.registerTextEditorCommand('lm-writing-tool.stopTextCheckCurrentDocument', async (te) => {
+			const interval = textCheckJobs.get(te);
+			if (interval) {
+				clearInterval(interval);
+				textCheckJobs.delete(te);
+			}
+		})
+	);
 	// Cleanup the interval on extension deactivation
 	context.subscriptions.push({
 		dispose: () => {

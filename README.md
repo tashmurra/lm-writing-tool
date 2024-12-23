@@ -6,7 +6,7 @@ This extension is a simple attempt to fill the gap through large language models
 
 ## Features
 
-![LLM-based grammar checking](resources/demo.mov)
+![LLM-based grammar checking](resources/demo.mp4)
 
 Choose from local llama3.2 or gpt-40-mini through [VSCode LM api](https://code.visualstudio.com/api/extension-guides/language-model).
 

@@ -50,19 +50,29 @@ class LMWritingTool {
 	numRequests: number;
 	dc: vscode.DiagnosticCollection;
 	corrections: Map<string, LocatedCorrection[]>;
+	//lmCallback: (document: vscode.TextDocument) => void;
 
+	/**
+	 * 
+	 * @param lm A language model to use for proofreading
+	 * @param textSplitterFunction A function that splits the text into snippets
+	 * @param dc A diagnostic collection to store the diagnostics
+	 * @param lmCallback A callback function that is called when a new language model request is completed. Passes the document that the request was made for. Can be used to update the diagnostics.
+	 */
 	constructor(lm: vscode.LanguageModelChat, textSplitterFunction = splitTextByLine, dc: vscode.DiagnosticCollection) {
+
 		this.lm = lm;
 		this.diagnosticsCache = new Map();
 		this.textSplitterFunction = textSplitterFunction;
 		this.numRequests = 0;
 		this.dc = dc;
 		this.corrections = new Map();
+		//this.lmCallback = lmCallback;
 	}
 
 	async getTextSnippetDiagnostic(text: string): Promise<TextSnippetDiagnostic> {
 		const response = await this.lm.sendRequest([
-			vscode.LanguageModelChatMessage.User(`Proofread the following message in American English. If it is gramatically correct, just respond with the word "Correct". If it is gramatically incorrect or has spelling mistakes, respond with "Correction: ", followed by the corrected version. Do not add additional text or explanations. Do not special commands, code, escape characters, or mathematical formulas. Only correct grammatical issues, do not change the content:\n${text}`)
+			vscode.LanguageModelChatMessage.User(`Proofread the following message in American English. If it is gramatically correct, just respond with the word "Correct". If it is gramatically incorrect or has spelling mistakes, respond with "Correction: ", followed by the corrected version. If you make a correction, write the whole corrected text, not just the segments with corrections. Do not add additional text or explanations. Do not change special commands, code, escape characters, or mathematical formulas. Only correct grammatical issues, do not change the content:\n${text}`)
 		]);
 		this.numRequests++;
 		let resp = '';
@@ -75,7 +85,7 @@ class LMWritingTool {
 			// const trailingSpacesOfOriginal = text.match(/\s*$/)?.[0] || '';
 			// const correctedVersionWithTrailingSpaces = trailingSpacesOfOriginal + correctedVersion.trimStart();
 			return { correctedVersion };
-		}else if (resp.startsWith('Correct') ) {
+		} else if (resp.startsWith('Correct')) {
 			return {};
 		} else {
 			console.warn(`Unexpected response: ${resp}`);
@@ -106,11 +116,22 @@ class LMWritingTool {
 			return undefined;
 		}).filter(d => d !== undefined) as LocatedTextSnippetDiagnostic[];
 	}
-	async checkDocument(document: vscode.TextDocument): Promise<vscode.Diagnostic[]> {
+	async sendLLMRequestsForDocument(document: vscode.TextDocument): Promise<void> {
+		const text = document.getText();
+		const snippets = this.textSplitterFunction(text);
+		const snippetTexts = [...new Set(snippets.map(s => s.text))];
+		await Promise.all(snippetTexts.map(async (ts) => {
+			await this.getSnippetDiagnostics(ts);
+			console.info(`Number of requests: ${this.numRequests}`);
+			this.checkDocument(document);
+		}));
+	}
+
+	checkDocument(document: vscode.TextDocument): vscode.Diagnostic[] {
 		const text = document.getText();
 		const snippets = splitTextByLine(text);
 		const snippetTexts = [...new Set(snippets.map(s => s.text))];
-		await Promise.all(snippetTexts.map((ts) => this.getSnippetDiagnostics(ts)));
+		//await Promise.all(snippetTexts.map((ts) => this.getSnippetDiagnostics(ts)));
 		const newCorrections: LocatedCorrection[] = [];
 		const diagnostics: vscode.Diagnostic[] = [];
 		for (const snippet of snippets) {
@@ -123,7 +144,7 @@ class LMWritingTool {
 					const start = snippet.range.start.translate(startLineRelative, startColRelative);
 					const end = snippet.range.start.translate(endLineRelative, endColRelative);
 					const range = new vscode.Range(start, end);
-					const text = correction.toInsert=== "" ? "Remove" : `Change to: ${correction.toInsert}`;
+					const text = correction.toInsert === "" ? "Remove" : `Change to: ${correction.toInsert}`;
 					const diagnostic = new vscode.Diagnostic(range, text, vscode.DiagnosticSeverity.Information);
 					newCorrections.push({ range, toInsert: correction.toInsert });
 					diagnostic.source = 'LM Writing Tool';
@@ -208,16 +229,16 @@ export async function activate(context: vscode.ExtensionContext) {
 			if (models.length === 0) {
 				throw new Error("No models found.");
 			}
-			let model= models[0];
-			if(models.length > 1){
-				function getQuickPickItem(m: vscode.LanguageModelChat){
+			let model = models[0];
+			if (models.length > 1) {
+				function getQuickPickItem(m: vscode.LanguageModelChat) {
 					return `${m.vendor}: ${m.family} ${m.version}`;
 				}
-				const response = await vscode.window.showQuickPick(models.map(getQuickPickItem),{
+				const response = await vscode.window.showQuickPick(models.map(getQuickPickItem), {
 					placeHolder: "Select model"
 				});
 				const matchingModel = models.find(m => getQuickPickItem(m) === response);
-				if(!matchingModel){
+				if (!matchingModel) {
 					throw new Error("No model selected.");
 				}
 				model = matchingModel;
@@ -250,10 +271,7 @@ export async function activate(context: vscode.ExtensionContext) {
 			const openTextDocument = te.document;
 			textCheckJobs.set(te, setInterval(async () => {
 				console.info('Checking document');
-				const text = openTextDocument.getText();
-				const diagnostics = await lmwt.checkDocument(openTextDocument);
-				dc.set(openTextDocument.uri, diagnostics);
-				console.info(`Number of requests in this session: ${lmwt.numRequests}`);
+				lmwt.sendLLMRequestsForDocument(openTextDocument);
 			}, 5000));
 
 			context.subscriptions.push(vscode.languages.registerCodeActionsProvider('*', new WritingToolCodeActionsProvider(lmwt), {}));

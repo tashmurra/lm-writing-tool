@@ -36,7 +36,7 @@ export class OllamaLLM implements vscode.LanguageModelChat {
             vscode.LanguageModelChatMessageRole.User;
             const ROLE_TO_STRING = new Map([
                 [vscode.LanguageModelChatMessageRole.User, 'user'],
-                [vscode.LanguageModelChatMessageRole.Assistant, 'assistant'],
+                [vscode.LanguageModelChatMessageRole.Assistant, 'ass'],
             ]);
             const stringMessages = messages.map(message => {
                 return {
@@ -44,10 +44,17 @@ export class OllamaLLM implements vscode.LanguageModelChat {
                     content: llmMessageToString(message),
                 };
             });
+            const defaultOptions = {
+                temperature: 0,
+                top_p: 0.5,
+                top_k: 40
+            };
+            const lmOptions = Object.assign({},defaultOptions,options);
             const response = await ollama.chat({
                 model: 'llama3.2',
                 messages: stringMessages,
                 stream: true,
+                options: lmOptions
             });
             const abortPromise = new Promise<void>((resolve, reject) => {
                 token?.onCancellationRequested(() => {

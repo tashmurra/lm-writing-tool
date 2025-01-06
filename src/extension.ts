@@ -62,7 +62,7 @@ class LMWritingTool {
 
 	async getTextSnippetDiagnostic(text: string): Promise<TextSnippetDiagnostic> {
 		const response = await this.lm.sendRequest([
-			vscode.LanguageModelChatMessage.User(`Proofread the following message in American English. If it is gramatically correct, just respond with the word "Correct". If it is gramatically incorrect or has spelling mistakes, respond with "Correction: ", followed by the corrected version. Do not add additional text or explanations. Do not make changes unless it is gramatically necessary: ${text}`)
+			vscode.LanguageModelChatMessage.User(`Proofread the following message in American English. If it is gramatically correct, just respond with the word "Correct". If it is gramatically incorrect or has spelling mistakes, respond with "Correction: ", followed by the corrected version. Do not add additional text or explanations. Do not special commands, code, escape characters, or mathematical formulas. Only correct grammatical issues, do not change the content:\n${text}`)
 		]);
 		this.numRequests++;
 		let resp = '';

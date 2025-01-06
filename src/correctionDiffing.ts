@@ -6,6 +6,15 @@ interface Correction {
     toInsert: string;
 }
 
+export function applyCorrections(text: string, corrections: Correction[]): string {
+    let result = text;
+    let offset = 0;
+    for (const c of corrections) {
+        result = result.substring(0, c.start + offset) + c.toInsert + result.substring(c.end + offset);
+        offset += c.toInsert.length - (c.end - c.start);
+    }
+    return result;
+}
 /**
  * Calculate the corrections needed to transform `original` into `corrected`.
  * @param original - The original text.
@@ -13,7 +22,7 @@ interface Correction {
  * @returns List of corrections.
  */
 export function calculateCorrections(original: string, corrected: string): Correction[] {
-    const diffs = diffWords(original, corrected);
+    const diffs = diffChars(original, corrected);
     const corrections: Correction[] = [];
     let currentIndex = 0;
     let pendingRemoval: Correction | null = null;
@@ -63,7 +72,28 @@ export function calculateCorrections(original: string, corrected: string): Corre
         corrections.push(pendingRemoval);
     }
 
-    return corrections;
+    const sourceWords = original.split(/\s+/);
+    const sourceWordIndices: { start: number, end: number }[] = [];
+    let start = 0;
+    for (const w of sourceWords) {
+        sourceWordIndices.push({ start: start, end: start + w.length });
+        start += w.length + 1;
+    }
+    const wordCorrections: Correction[] = [];
+    for (const wi of sourceWordIndices) {
+        const changesInWord = corrections.filter(c => c.start >= wi.start && c.end <= wi.end);
+        let correctedWord = applyCorrections(original.substring(wi.start, wi.end), changesInWord.map(c=>({start: c.start - wi.start, end: c.end - wi.start, toInsert: c.toInsert})));
+        if (correctedWord !== original.substring(wi.start, wi.end)) {
+            wordCorrections.push({
+                start: wi.start,
+                end: wi.end,
+                toInsert: correctedWord
+            });
+        }
+    }
+
+
+    return wordCorrections;
 }
 /**
  * 

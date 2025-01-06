@@ -62,8 +62,7 @@ class LMWritingTool {
 
 	async getTextSnippetDiagnostic(text: string): Promise<TextSnippetDiagnostic> {
 		const response = await this.lm.sendRequest([
-			vscode.LanguageModelChatMessage.User(`Proofread the following message. If it is gramatically correct, just respond with the word "Correct". If it is gramatically incorrect or has spelling mistakes, respond with "Correction: ", followed by the corrected version, no extra text:`),
-			vscode.LanguageModelChatMessage.User(text)
+			vscode.LanguageModelChatMessage.User(`Proofread the following message in American English. If it is gramatically correct, just respond with the word "Correct". If it is gramatically incorrect or has spelling mistakes, respond with "Correction: ", followed by the corrected version. Do not add additional text or explanations. Do not make changes unless it is gramatically necessary: ${text}`)
 		]);
 		this.numRequests++;
 		let resp = '';
@@ -73,6 +72,8 @@ class LMWritingTool {
 		console.info(`Response: ${resp}`);
 		if (resp.startsWith('Correction: ')) {
 			const correctedVersion = resp.slice('Correction: '.length);
+			// const trailingSpacesOfOriginal = text.match(/\s*$/)?.[0] || '';
+			// const correctedVersionWithTrailingSpaces = trailingSpacesOfOriginal + correctedVersion.trimStart();
 			return { correctedVersion };
 		}else if (resp.startsWith('Correct') ) {
 			return {};

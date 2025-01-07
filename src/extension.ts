@@ -6,6 +6,7 @@ import * as vscode from 'vscode';
 import * as Diff from 'diff';
 import { getLineCol, calculateCorrections } from './correctionDiffing';
 import { OllamaLLM } from './ollamaIntegration';
+import { Task, TaskScheduler } from './taskScheduler';
 
 type TextSnippet = {
 	text: string;
@@ -50,6 +51,7 @@ class LMWritingTool {
 	numRequests: number;
 	dc: vscode.DiagnosticCollection;
 	corrections: Map<string, LocatedCorrection[]>;
+	taskScheduler: TaskScheduler;
 	//lmCallback: (document: vscode.TextDocument) => void;
 
 	/**
@@ -67,17 +69,22 @@ class LMWritingTool {
 		this.numRequests = 0;
 		this.dc = dc;
 		this.corrections = new Map();
+		this.taskScheduler = new TaskScheduler(1);
 		//this.lmCallback = lmCallback;
 	}
 
-	async getTextSnippetDiagnostic(text: string): Promise<TextSnippetDiagnostic> {
+	async getTextSnippetDiagnostic(text: string, token: vscode.CancellationToken): Promise<TextSnippetDiagnostic> {
 		const response = await this.lm.sendRequest([
 			vscode.LanguageModelChatMessage.User(`Proofread the following message in American English. If it is gramatically correct, just respond with the word "Correct". If it is gramatically incorrect or has spelling mistakes, respond with "Correction: ", followed by the corrected version. If you make a correction, write the whole corrected text, not just the segments with corrections. Do not add additional text or explanations. Do not change special commands, code, escape characters, or mathematical formulas. Only correct grammatical issues, do not change the content:\n${text}`)
-		]);
+		],{},token);
 		this.numRequests++;
 		let resp = '';
 		for await (const message of response.text) {
 			resp += message;
+		}
+		if(token.isCancellationRequested){
+			console.info('Request cancelled at partial response ', resp);
+			return {};
 		}
 		console.info(`Response: ${resp}`);
 		if (resp.startsWith('Correction: ')) {
@@ -92,13 +99,12 @@ class LMWritingTool {
 			return {};
 		}
 	}
-	async getSnippetDiagnostics(snippet: string): Promise<TextSnippetDiagnostic> {
+	async getSnippetDiagnostics(snippet: string, token: vscode.CancellationToken) {
 		if (this.diagnosticsCache.has(snippet)) {
 			return this.diagnosticsCache.get(snippet) || {};
 		}
-		const diagnostic = await this.getTextSnippetDiagnostic(snippet);
+		const diagnostic = await this.getTextSnippetDiagnostic(snippet,token);
 		this.diagnosticsCache.set(snippet, diagnostic);
-		return diagnostic;
 	}
 
 	getCachedSnippetDiagnosticsAtLocation(document: vscode.TextDocument, location: vscode.Position): LocatedTextSnippetDiagnostic[] {
@@ -116,15 +122,53 @@ class LMWritingTool {
 			return undefined;
 		}).filter(d => d !== undefined) as LocatedTextSnippetDiagnostic[];
 	}
-	async sendLLMRequestsForDocument(document: vscode.TextDocument): Promise<void> {
+	sendLLMRequestsForDocument(document: vscode.TextDocument){
 		const text = document.getText();
 		const snippets = this.textSplitterFunction(text);
 		const snippetTexts = [...new Set(snippets.map(s => s.text))];
-		await Promise.all(snippetTexts.map(async (ts) => {
-			await this.getSnippetDiagnostics(ts);
-			console.info(`Number of requests: ${this.numRequests}`);
-			this.checkDocument(document);
-		}));
+		const currentlyActiveDocument = vscode.window.activeTextEditor?.document.uri.toString();
+		for(const [id,t] of this.taskScheduler.pendingTasks){
+			if(t.group !== currentlyActiveDocument){
+				t.priority = 0;
+			}
+		}
+		const tasks = new Map<string,Task>();
+		const lmwt = this;
+		
+		for(const snippet of snippets){
+			let priority = 0;
+			if(currentlyActiveDocument === document.uri.toString()){
+				priority = 1;
+				const currentPosition= vscode.window.activeTextEditor?.selection.active;
+				if(currentPosition && snippet.range.contains(currentPosition)){
+					priority += 1;
+				}
+				const visibleRange = vscode.window.activeTextEditor?.visibleRanges?.[0];
+				if(visibleRange && snippet.range.intersection(visibleRange)){
+					priority += 1;
+				}
+			}
+			if(!this.diagnosticsCache.has(snippet.text)){
+				const cancellationToken = new vscode.CancellationTokenSource();
+				tasks.set(snippet.text,{
+					async run() {
+						console.info(`Requesting diagnostics for ${snippet.text}`);
+						await lmwt.getSnippetDiagnostics(snippet.text,cancellationToken.token);
+						lmwt.checkDocument(document);
+					},
+					async abort() {
+						console.info(`Aborting diagnostics request for ${snippet.text}`);
+						cancellationToken.cancel();
+					},
+					priority: priority,
+					group: document.uri.toString(),
+					timeoutSeconds: 40
+				});
+			}
+		}
+		console.info(`updating tasks for ${document.uri.toString()}`);
+		this.taskScheduler.setTasks(tasks, document.uri.toString());
+		this.checkDocument(document);
 	}
 
 	checkDocument(document: vscode.TextDocument): vscode.Diagnostic[] {

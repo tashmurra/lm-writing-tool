@@ -2,7 +2,7 @@
   "name": "lm-writing-tool",
   "displayName": "LLM Writing Tool",
   "description": "LLM-powered writing tool for vscode. Grammar checker, text refinements",
-  "version": "0.0.1",
+  "version": "0.0.3",
   "engines": {
     "vscode": "^1.96.0"
   },
@@ -63,5 +63,6 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/peteole/lm-writing-tool"
-  }
+  },
+  "icon": "resources/logo.png"
 }

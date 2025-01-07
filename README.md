@@ -15,3 +15,8 @@ This extension is a simple attempt to fill the gap through large language models
 
 - "Start Text Check for Current Document": Continuously checks the text in the current document
 - "Stop Text Check for Current Document": Stops checking the text in the current document
+
+## Installation
+
+1. Install the extension from the [VSCode Marketplace][https://marketplace.visualstudio.com/items?itemName=lm-writing-tool.lm-writing-tool](https://marketplace.visualstudio.com/items?itemName=OlePetersen.lm-writing-tool)
+2. Install [Ollama](https://ollama.com/) and pull llama3.2:3b for local grammar checking or subscribe to Github Copilot to use an online model.

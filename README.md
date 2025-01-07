@@ -1,6 +1,6 @@
-# lm-writing-tool README
+# LLM Writing Tool
 
-After Grammarly disabled its API, there is no similar grammar checking tool for VSCode. While [LTeX](https://marketplace.visualstudio.com/items?itemName=valentjn.vscode-ltex) catches spelling mistakes, it does not reach the level of understanding of Grammarly.
+After Grammarly disabled its API, there is no similar grammar checking tool for VSCode. While [LTeX](https://marketplace.visualstudio.com/items?itemName=valentjn.vscode-ltex) catches spelling mistakes, it does not reach the level of understanding that Grammarly does.
 
 This extension is a simple attempt to fill the gap through large language models (LLM). It chunks the text into paragraphs, asks an LLM to proofread each paragraph, and then highlights the errors. The user can then click on the error to see the suggested correction.
 
@@ -18,5 +18,5 @@ This extension is a simple attempt to fill the gap through large language models
 
 ## Installation
 
-1. Install the extension from the [VSCode Marketplace][https://marketplace.visualstudio.com/items?itemName=lm-writing-tool.lm-writing-tool](https://marketplace.visualstudio.com/items?itemName=OlePetersen.lm-writing-tool)
-2. Install [Ollama](https://ollama.com/) and pull llama3.2:3b for local grammar checking or subscribe to Github Copilot to use an online model.
+1. Install the extension from the [VSCode Marketplace](https://marketplace.visualstudio.com/items?itemName=OlePetersen.lm-writing-tool)
+2. Install [Ollama](https://ollama.com/) and pull llama3.2:3b for local grammar checking, or subscribe to GitHub Copilot to use an online model.

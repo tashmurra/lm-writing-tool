@@ -9,5 +9,9 @@ This extension is a simple attempt to fill the gap through large language models
 ![LLM-based grammar checking](resources/demo.gif)
 - LLM-based grammar checking
 - Corrections via quick fixes
-- Choose from local llama3.2 or gpt-40-mini through [VSCode LM api](https://code.visualstudio.com/api/extension-guides/language-model)
+- Choose from local llama3.2:3b or gpt-40-mini through [VSCode LM api](https://code.visualstudio.com/api/extension-guides/language-model)
 
+## Commands
+
+- "Start Text Check for Current Document": Continuously checks the text in the current document
+- "Stop Text Check for Current Document": Stops checking the text in the current document

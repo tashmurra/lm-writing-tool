@@ -6,6 +6,7 @@
   "engines": {
     "vscode": "^1.96.0"
   },
+  "publisher": "OlePetersen",
   "categories": [
     "Other"
   ],
@@ -58,5 +59,9 @@
   "dependencies": {
     "diff": "^7.0.0",
     "ollama": "^0.5.11"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/peteole/lm-writing-tool"
   }
 }

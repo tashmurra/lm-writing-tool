@@ -72,19 +72,30 @@ class LMWritingTool {
 		this.taskScheduler = new TaskScheduler(1);
 		//this.lmCallback = lmCallback;
 	}
-
-	async getTextSnippetDiagnostic(text: string, token: vscode.CancellationToken): Promise<TextSnippetDiagnostic> {
-		const response = await this.lm.sendRequest([
-			vscode.LanguageModelChatMessage.User(`Proofread the following message in American English. If it is gramatically correct, just respond with the word "Correct". If it is gramatically incorrect or has spelling mistakes, respond with "Correction: ", followed by the corrected version. If you make a correction, write the whole corrected text, not just the segments with corrections. Do not add additional text or explanations. Do not change special commands, code, escape characters, or mathematical formulas. Only correct grammatical issues, do not change the content:\n${text}`)
-		], {}, token);
-		this.numRequests++;
-		let resp = '';
-		for await (const message of response.text) {
-			resp += message;
+	async getFullResponse(prompt: string, token: vscode.CancellationToken): Promise<string|undefined> {
+		try {
+			const response = await this.lm.sendRequest([
+				vscode.LanguageModelChatMessage.User(prompt)
+			], {}, token);
+			this.numRequests++;
+			let resp = '';
+			for await (const message of response.text) {
+				resp += message;
+			}
+			if (token.isCancellationRequested) {
+				console.info('Request cancelled at partial response ', resp);
+				return '';
+			}
+			console.info(`Response: ${resp}`);
+			return resp;
+		} catch (error) {
+			vscode.window.showErrorMessage(`Error calling LLM: ${error}`);
 		}
-		if (token.isCancellationRequested) {
-			console.info('Request cancelled at partial response ', resp);
-			return {};
+	}
+	async getTextSnippetDiagnostic(text: string, token: vscode.CancellationToken): Promise<TextSnippetDiagnostic> {
+		const resp = await this.getFullResponse(`Proofread the following message in American English. If it is gramatically correct, just respond with the word "Correct". If it is gramatically incorrect or has spelling mistakes, respond with "Correction: ", followed by the corrected version. If you make a correction, write the whole corrected text, not just the segments with corrections. Do not add additional text or explanations. Do not change special commands, code, escape characters, or mathematical formulas. Only correct grammatical issues, do not change the content:\n${text}`, token);
+		if (!resp) {
+			throw new Error('No response');
 		}
 		console.info(`Response: ${resp}`);
 		if (resp.startsWith('Correction: ')) {
@@ -101,41 +112,23 @@ class LMWritingTool {
 	}
 
 	async getRewriteSuggestion(text: string, token: vscode.CancellationToken): Promise<string> {
-		const response = await this.lm.sendRequest([
-			vscode.LanguageModelChatMessage.User(`Rewrite the following text for clarity in American English. Do not change special commands, code, escape characters, or mathematical formulas. Respond just with the rewritten version of the text, no extra explanation:\n${text}`)
-		], {}, token);
-		this.numRequests++;
-		let resp = '';
-		for await (const message of response.text) {
-			resp += message;
+		const resp = await this.getFullResponse(`Rewrite the following text for clarity in American English. Do not change special commands, code, escape characters, or mathematical formulas. Respond just with the rewritten version of the text, no extra explanation:\n${text}`,token);
+		if (!resp) {
+			return text;
 		}
-		if (token.isCancellationRequested) {
-			console.info('Request cancelled at partial response ', resp);
-			return '';
-		}
-		console.info(`Response: ${resp}`);
 		return resp;
 	}
 
 	async getSynonyms(expression: string, token: vscode.CancellationToken): Promise<string[]> {
-		const response = await this.lm.sendRequest([
-			vscode.LanguageModelChatMessage.User(`Give up to 5 synonyms for the expression "${expression}". Just respond with the synonyms, separated by newlines. No extra explanation or context needed.`)
-		], {}, token);
-		this.numRequests++;
-		let resp = '';
-		for await (const message of response.text) {
-			resp += message;
-		}
-		if (token.isCancellationRequested) {
-			console.info('Request cancelled at partial response ', resp);
+		const resp = await this.getFullResponse(`Give up to 5 synonyms for the expression "${expression}". Just respond with the synonyms, separated by newlines. No extra explanation or context needed.`, token);
+		if (!resp) {
 			return [];
 		}
-		console.info(`Response: ${resp}`);
 		let synonyms = resp.split('\n').map(s => s.trim());
 		// Match first capital letter of each line to the capitalization of the original expression
-		if(expression[0] === expression[0].toLowerCase()){
+		if (expression[0] === expression[0].toLowerCase()) {
 			synonyms = synonyms.map(s => s[0].toLowerCase() + s.slice(1));
-		}else{
+		} else {
 			synonyms = synonyms.map(s => s[0].toUpperCase() + s.slice(1));
 		}
 		return synonyms;
@@ -330,40 +323,54 @@ export async function activate(context: vscode.ExtensionContext) {
 	let _lmwt: LMWritingTool | undefined;
 	async function getLMWT() {
 		if (!_lmwt) {
-			const models = await vscode.lm.selectChatModels({
-				vendor: 'copilot',
-				family: 'gpt-4o-mini'
-			});
-			models.push(new OllamaLLM());
-			if (models.length === 0) {
-				throw new Error("No models found.");
-			}
-			let model = models[0];
-			if (models.length > 1) {
-				function getQuickPickItem(m: vscode.LanguageModelChat) {
-					return `${m.vendor}: ${m.family} ${m.version}`;
-				}
-				const response = await vscode.window.showQuickPick(models.map(getQuickPickItem), {
-					placeHolder: "Select model"
-				});
-				const matchingModel = models.find(m => getQuickPickItem(m) === response);
-				if (!matchingModel) {
-					throw new Error("No model selected.");
-				}
-				model = matchingModel;
-			}
+			const model = await selectModel();
 			_lmwt = new LMWritingTool(model, splitTextByLine, dc);
 		}
 		return _lmwt;
 	}
+
+	async function selectModel() {
+		const models = await vscode.lm.selectChatModels({
+			vendor: 'copilot',
+			family: 'gpt-4o-mini'
+		});
+		models.push(new OllamaLLM());
+		if (models.length === 0) {
+			throw new Error("No models found.");
+		}
+		let model = models[0];
+		if (models.length > 1) {
+			function getQuickPickItem(m: vscode.LanguageModelChat) {
+				return `${m.vendor}: ${m.family} ${m.version}`;
+			}
+			const response = await vscode.window.showQuickPick(models.map(getQuickPickItem), {
+				placeHolder: "Select model"
+			});
+			const matchingModel = models.find(m => getQuickPickItem(m) === response);
+			if (!matchingModel) {
+				throw new Error("No model selected.");
+			}
+			model = matchingModel;
+		}
+		return model;
+	}
+	context.subscriptions.push(
+		vscode.commands.registerTextEditorCommand('lm-writing-tool.selectModel', async (te) => {
+			const model = await selectModel();
+			stopAllJobs();
+			_lmwt = new LMWritingTool(model, splitTextByLine, dc);
+
+		})
+	);
+
 	const dc = vscode.languages.createDiagnosticCollection();
 	context.subscriptions.push(dc);
 	const textCheckJobs = new Map<vscode.TextEditor, NodeJS.Timeout>();
 
 	context.subscriptions.push(
 		vscode.commands.registerTextEditorCommand('lm-writing-tool.startTextCheckCurrentDocument', async (te) => {
-			const lmwt = await getLMWT();
 			const openTextDocument = te.document;
+			const lmwt = await getLMWT();
 			textCheckJobs.set(te, setInterval(async () => {
 				console.info('Checking document');
 				lmwt.sendLLMRequestsForDocument(openTextDocument);
@@ -410,19 +417,19 @@ export async function activate(context: vscode.ExtensionContext) {
 				vscode.window.showInformationMessage('No expression selected');
 				return;
 			}
-			if(selectedText.length > 100){
+			if (selectedText.length > 100) {
 				vscode.window.showInformationMessage('Expression too long');
 				return;
 			}
 			const synonyms = await lmwt.getSynonyms(selectedText, new vscode.CancellationTokenSource().token);
-			if(synonyms.length === 0){
+			if (synonyms.length === 0) {
 				vscode.window.showInformationMessage('No synonyms found');
 				return;
 			}
 			const pick = await vscode.window.showQuickPick(synonyms, {
 				placeHolder: 'Choose a synonym to insert'
 			});
-			if(pick){
+			if (pick) {
 				const edit = new vscode.WorkspaceEdit();
 				edit.replace(openTextDocument.uri, te.selection, pick);
 				await vscode.workspace.applyEdit(edit);
@@ -440,12 +447,14 @@ export async function activate(context: vscode.ExtensionContext) {
 		})
 	);
 	// Cleanup the interval on extension deactivation
+	function stopAllJobs() {
+		for (const [te,interval] of textCheckJobs.entries()) {
+			clearInterval(interval);
+			textCheckJobs.delete(te);
+		}
+	}
 	context.subscriptions.push({
-		dispose: () => {
-			for (const interval of textCheckJobs.values()) {
-				clearInterval(interval);
-			}
-		},
+		dispose: stopAllJobs
 	});
 }
 

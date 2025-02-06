@@ -33,5 +33,6 @@ The extension splits the text in sections and asks the LLM to proofread each sec
 ## Roadmap
 
 - [ ] On-disk caching of the LLM results to avoid repeated requests to the LLM API and faster startup times.
+- [ ] More advanced chunking of the text into sections. Currently, the text is simply split by line. This results in large variations in the length of the sections. Ideally, each section should be around two full lines of text.
 - [ ] Support for more languages. British English should be easiest to implement but in the future, any language supported by the LLM should be possible.
 - [ ] Check out other models for better results. Prompts may have to be adjusted for different models.

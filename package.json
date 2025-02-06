@@ -33,6 +33,10 @@
       {
         "command": "lm-writing-tool.getSynonyms",
         "title": "LLM writing tool: Get synonyms for selection"
+      },
+      {
+        "command": "lm-writing-tool.selectModel",
+        "title": "LLM writing tool: Select model"
       }
     ]
   },

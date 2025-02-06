@@ -1,10 +1,10 @@
-import ollama from 'ollama';
+import ollama, { ChatResponse } from 'ollama';
 import * as vscode from 'vscode';
 
-function llmMessageToString(message:  vscode.LanguageModelChatMessage): string {
+function llmMessageToString(message: vscode.LanguageModelChatMessage): string {
     let str = '';
-    for(const part of message.content){
-        if(part instanceof vscode.LanguageModelTextPart){
+    for (const part of message.content) {
+        if (part instanceof vscode.LanguageModelTextPart) {
             str += part.value;
         }
     }
@@ -26,11 +26,12 @@ export class OllamaLLM implements vscode.LanguageModelChat {
         this.version = '3.2';
         this.maxInputTokens = 1024;
     }
-    async pull(){
+    async pull() {
         await ollama.pull({
             model: 'llama3.2',
         });
     }
+
     sendRequest(messages: vscode.LanguageModelChatMessage[], options?: vscode.LanguageModelChatRequestOptions, token?: vscode.CancellationToken): Thenable<vscode.LanguageModelChatResponse> {
         return new Promise(async (resolve, reject) => {
             vscode.LanguageModelChatMessageRole.User;
@@ -40,7 +41,7 @@ export class OllamaLLM implements vscode.LanguageModelChat {
             ]);
             const stringMessages = messages.map(message => {
                 return {
-                    role: ROLE_TO_STRING.get(message.role)||'user',
+                    role: ROLE_TO_STRING.get(message.role) || 'user',
                     content: llmMessageToString(message),
                 };
             });
@@ -49,42 +50,49 @@ export class OllamaLLM implements vscode.LanguageModelChat {
                 top_p: 0.5,
                 top_k: 40
             };
-            const lmOptions = Object.assign({},defaultOptions,options);
-            const response = await ollama.chat({
-                model: 'llama3.2',
-                messages: stringMessages,
-                stream: true,
-                options: lmOptions
-            });
-            const abortPromise = new Promise<void>((resolve, reject) => {
-                token?.onCancellationRequested(() => {
-                    resolve();
+            const lmOptions = Object.assign({}, defaultOptions, options);
+            try {
+                const response = await ollama.chat({
+                    model: 'llama3.2',
+                    messages: stringMessages,
+                    stream: true,
+                    options: lmOptions
                 });
-            });
-            async function* responseTextGenerator(){
-                for await (const chunk of response) {
-                    const result = await Promise.race([chunk, abortPromise]);
-                    if (result) {
-                        yield result.message.content;
-                    } else {
-                        break;
+                const abortPromise = new Promise<void>((resolve, reject) => {
+                    token?.onCancellationRequested(() => {
+                        resolve();
+                    });
+                });
+                async function* responseTextGenerator() {
+                    for await (const chunk of response) {
+                        const result = await Promise.race([chunk, abortPromise]);
+                        if (result) {
+                            yield result.message.content;
+                        } else {
+                            break;
+                        }
                     }
                 }
-            }
-            async function* responseStreamGenerator(){
-                for await (const chunk of response) {
-                    const result = await Promise.race([chunk, abortPromise]);
-                    if (result) {
-                        yield new vscode.LanguageModelTextPart(chunk.message.content);
-                    } else {
-                        break;
+                async function* responseStreamGenerator() {
+                    for await (const chunk of response) {
+                        const result = await Promise.race([chunk, abortPromise]);
+                        if (result) {
+                            yield new vscode.LanguageModelTextPart(chunk.message.content);
+                        } else {
+                            break;
+                        }
                     }
                 }
+                resolve(({
+                    text: responseTextGenerator(),
+                    stream: responseStreamGenerator(),
+                }));
+            } catch (error) {
+                reject(`Could not reach ollama: ${error}
+                    Have you installed and started the ollama server?
+                    Find the instructions here: https://ollama.com/`);
+                return;
             }
-            return resolve(({
-                text: responseTextGenerator(),
-                stream: responseStreamGenerator(),
-            }));
         });
     }
     countTokens(text: string | vscode.LanguageModelChatMessage, token?: vscode.CancellationToken): Thenable<number> {

@@ -76,13 +76,13 @@ class LMWritingTool {
 	async getTextSnippetDiagnostic(text: string, token: vscode.CancellationToken): Promise<TextSnippetDiagnostic> {
 		const response = await this.lm.sendRequest([
 			vscode.LanguageModelChatMessage.User(`Proofread the following message in American English. If it is gramatically correct, just respond with the word "Correct". If it is gramatically incorrect or has spelling mistakes, respond with "Correction: ", followed by the corrected version. If you make a correction, write the whole corrected text, not just the segments with corrections. Do not add additional text or explanations. Do not change special commands, code, escape characters, or mathematical formulas. Only correct grammatical issues, do not change the content:\n${text}`)
-		],{},token);
+		], {}, token);
 		this.numRequests++;
 		let resp = '';
 		for await (const message of response.text) {
 			resp += message;
 		}
-		if(token.isCancellationRequested){
+		if (token.isCancellationRequested) {
 			console.info('Request cancelled at partial response ', resp);
 			return {};
 		}
@@ -99,11 +99,53 @@ class LMWritingTool {
 			return {};
 		}
 	}
+
+	async getRewriteSuggestion(text: string, token: vscode.CancellationToken): Promise<string> {
+		const response = await this.lm.sendRequest([
+			vscode.LanguageModelChatMessage.User(`Rewrite the following text for clarity in American English. Do not change special commands, code, escape characters, or mathematical formulas. Respond just with the rewritten version of the text, no extra explanation:\n${text}`)
+		], {}, token);
+		this.numRequests++;
+		let resp = '';
+		for await (const message of response.text) {
+			resp += message;
+		}
+		if (token.isCancellationRequested) {
+			console.info('Request cancelled at partial response ', resp);
+			return '';
+		}
+		console.info(`Response: ${resp}`);
+		return resp;
+	}
+
+	async getSynonyms(expression: string, token: vscode.CancellationToken): Promise<string[]> {
+		const response = await this.lm.sendRequest([
+			vscode.LanguageModelChatMessage.User(`Give up to 5 synonyms for the expression "${expression}". Just respond with the synonyms, separated by newlines. No extra explanation or context needed.`)
+		], {}, token);
+		this.numRequests++;
+		let resp = '';
+		for await (const message of response.text) {
+			resp += message;
+		}
+		if (token.isCancellationRequested) {
+			console.info('Request cancelled at partial response ', resp);
+			return [];
+		}
+		console.info(`Response: ${resp}`);
+		let synonyms = resp.split('\n').map(s => s.trim());
+		// Match first capital letter of each line to the capitalization of the original expression
+		if(expression[0] === expression[0].toLowerCase()){
+			synonyms = synonyms.map(s => s[0].toLowerCase() + s.slice(1));
+		}else{
+			synonyms = synonyms.map(s => s[0].toUpperCase() + s.slice(1));
+		}
+		return synonyms;
+	}
+
 	async getSnippetDiagnostics(snippet: string, token: vscode.CancellationToken) {
 		if (this.diagnosticsCache.has(snippet)) {
 			return this.diagnosticsCache.get(snippet) || {};
 		}
-		const diagnostic = await this.getTextSnippetDiagnostic(snippet,token);
+		const diagnostic = await this.getTextSnippetDiagnostic(snippet, token);
 		this.diagnosticsCache.set(snippet, diagnostic);
 	}
 
@@ -122,38 +164,42 @@ class LMWritingTool {
 			return undefined;
 		}).filter(d => d !== undefined) as LocatedTextSnippetDiagnostic[];
 	}
-	sendLLMRequestsForDocument(document: vscode.TextDocument){
+	sendLLMRequestsForDocument(document: vscode.TextDocument) {
 		const text = document.getText();
 		const snippets = this.textSplitterFunction(text);
 		const snippetTexts = [...new Set(snippets.map(s => s.text))];
 		const currentlyActiveDocument = vscode.window.activeTextEditor?.document.uri.toString();
-		for(const [id,t] of this.taskScheduler.pendingTasks){
-			if(t.group !== currentlyActiveDocument){
+		for (const [id, t] of this.taskScheduler.pendingTasks) {
+			if (t.group !== currentlyActiveDocument) {
 				t.priority = 0;
 			}
 		}
-		const tasks = new Map<string,Task>();
+		const tasks = new Map<string, Task>();
 		const lmwt = this;
-		
-		for(const snippet of snippets){
+
+		for (const snippet of snippets) {
 			let priority = 0;
-			if(currentlyActiveDocument === document.uri.toString()){
+			if (currentlyActiveDocument === document.uri.toString()) {
 				priority = 1;
-				const currentPosition= vscode.window.activeTextEditor?.selection.active;
-				if(currentPosition && snippet.range.contains(currentPosition)){
+				const currentPosition = vscode.window.activeTextEditor?.selection.active;
+				if (currentPosition && snippet.range.contains(currentPosition)) {
 					priority += 1;
 				}
 				const visibleRange = vscode.window.activeTextEditor?.visibleRanges?.[0];
-				if(visibleRange && snippet.range.intersection(visibleRange)){
+				if (visibleRange && snippet.range.intersection(visibleRange)) {
 					priority += 1;
 				}
+				if (currentPosition) {
+					const lineDifference = Math.min(Math.abs(currentPosition.line - snippet.range.start.line), Math.abs(currentPosition.line - snippet.range.end.line));
+					priority += 1 / (lineDifference + 1);
+				}
 			}
-			if(!this.diagnosticsCache.has(snippet.text)){
+			if (!this.diagnosticsCache.has(snippet.text)) {
 				const cancellationToken = new vscode.CancellationTokenSource();
-				tasks.set(snippet.text,{
+				tasks.set(snippet.text, {
 					async run() {
 						console.info(`Requesting diagnostics for ${snippet.text}`);
-						await lmwt.getSnippetDiagnostics(snippet.text,cancellationToken.token);
+						await lmwt.getSnippetDiagnostics(snippet.text, cancellationToken.token);
 						lmwt.checkDocument(document);
 					},
 					async abort() {
@@ -247,6 +293,25 @@ class WritingToolCodeActionsProvider implements vscode.CodeActionProvider {
 				actions.push(a);
 			}
 		}
+		// add rewrite suggestion if text is selected
+		if (!range.start.isEqual(range.end)) {
+
+			const a = new vscode.CodeAction(`Get rewrite suggestion for selected text`, vscode.CodeActionKind.RefactorRewrite);
+			a.command = {
+				command: 'lm-writing-tool.rewriteSelection',
+				title: 'Rewrite selection',
+			};
+			actions.push(a);
+		}
+
+		if (!range.start.isEqual(range.end) && document.getText(range).length < 100) {
+			const a = new vscode.CodeAction(`Get synonyms for selected text`, vscode.CodeActionKind.RefactorRewrite);
+			a.command = {
+				command: 'lm-writing-tool.getSynonyms',
+				title: 'Get synonyms',
+			};
+			actions.push(a);
+		}
 		return actions;
 	}
 	resolveCodeAction?(codeAction: vscode.CodeAction, token: vscode.CancellationToken): vscode.ProviderResult<vscode.CodeAction> {
@@ -293,20 +358,6 @@ export async function activate(context: vscode.ExtensionContext) {
 	}
 	const dc = vscode.languages.createDiagnosticCollection();
 	context.subscriptions.push(dc);
-
-	context.subscriptions.push(
-		vscode.commands.registerTextEditorCommand('lm-writing-tool.checkCurrentDocument', async (te) => {
-			const lmwt = await getLMWT();
-			const openTextDocument = te.document;
-			console.info('Checking document');
-			const text = openTextDocument.getText();
-			const diagnostics = await lmwt.checkDocument(openTextDocument);
-			dc.set(openTextDocument.uri, diagnostics);
-			console.info(`Number of requests: ${lmwt.numRequests}`);
-		})
-	);
-
-
 	const textCheckJobs = new Map<vscode.TextEditor, NodeJS.Timeout>();
 
 	context.subscriptions.push(
@@ -322,7 +373,62 @@ export async function activate(context: vscode.ExtensionContext) {
 		})
 	);
 
+	context.subscriptions.push(
+		vscode.commands.registerTextEditorCommand('lm-writing-tool.rewriteSelection', async (te) => {
+			const lmwt = await getLMWT();
+			const openTextDocument = te.document;
+			const selectedText = openTextDocument.getText(te.selection);
+			if (selectedText.length === 0) {
+				vscode.window.showInformationMessage('No text selected');
+				return;
+			}
+			const rewrite = await lmwt.getRewriteSuggestion(selectedText, new vscode.CancellationTokenSource().token);
+			const previewEdit = new vscode.WorkspaceEdit();
+			previewEdit.replace(openTextDocument.uri, te.selection, rewrite);
+			const preview = await vscode.workspace.applyEdit(previewEdit);
 
+			if (preview) {
+				const accept = await vscode.window.showQuickPick(['Yes', 'No'], {
+					placeHolder: 'Accept the rewrite suggestion?'
+				});
+				if (accept !== 'Yes') {
+					// Revert the preview edit
+					const revertEdit = new vscode.WorkspaceEdit();
+					revertEdit.replace(openTextDocument.uri, te.selection, selectedText);
+					await vscode.workspace.applyEdit(revertEdit);
+				}
+			}
+		})
+	);
+
+	context.subscriptions.push(
+		vscode.commands.registerTextEditorCommand('lm-writing-tool.getSynonyms', async (te) => {
+			const lmwt = await getLMWT();
+			const openTextDocument = te.document;
+			const selectedText = openTextDocument.getText(te.selection);
+			if (selectedText.length === 0) {
+				vscode.window.showInformationMessage('No expression selected');
+				return;
+			}
+			if(selectedText.length > 100){
+				vscode.window.showInformationMessage('Expression too long');
+				return;
+			}
+			const synonyms = await lmwt.getSynonyms(selectedText, new vscode.CancellationTokenSource().token);
+			if(synonyms.length === 0){
+				vscode.window.showInformationMessage('No synonyms found');
+				return;
+			}
+			const pick = await vscode.window.showQuickPick(synonyms, {
+				placeHolder: 'Choose a synonym to insert'
+			});
+			if(pick){
+				const edit = new vscode.WorkspaceEdit();
+				edit.replace(openTextDocument.uri, te.selection, pick);
+				await vscode.workspace.applyEdit(edit);
+			}
+		})
+	);
 
 	context.subscriptions.push(
 		vscode.commands.registerTextEditorCommand('lm-writing-tool.stopTextCheckCurrentDocument', async (te) => {

@@ -37,7 +37,7 @@ export class OllamaLLM implements vscode.LanguageModelChat {
             vscode.LanguageModelChatMessageRole.User;
             const ROLE_TO_STRING = new Map([
                 [vscode.LanguageModelChatMessageRole.User, 'user'],
-                [vscode.LanguageModelChatMessageRole.Assistant, 'ass'],
+                [vscode.LanguageModelChatMessageRole.Assistant, 'assistant'],
             ]);
             const stringMessages = messages.map(message => {
                 return {

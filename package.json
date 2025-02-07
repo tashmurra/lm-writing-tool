@@ -8,12 +8,14 @@
   },
   "publisher": "OlePetersen",
   "categories": [
-    "Other"
+    "Linters",
+    "AI"
   ],
   "activationEvents": [
     "onLanguage:markdown",
     "onLanguage:latex",
-    "onLanguage:typst"
+    "onLanguage:typst",
+    "onLanguage:plaintext"
   ],
   "main": "./dist/extension.js",
   "contributes": {

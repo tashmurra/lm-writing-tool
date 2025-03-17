@@ -26,10 +26,38 @@ export class OllamaLLM implements vscode.LanguageModelChat {
         this.version = '3.2';
         this.maxInputTokens = 1024;
     }
-    async pull() {
-        await ollama.pull({
-            model: 'llama3.2',
-        });
+
+    static async create(){
+        const availableModels = await ollama.list();
+        if(availableModels.models.filter(model=> model.model === 'llama3.2:3b').length !==1){
+            const res = await vscode.window.showQuickPick(['pull llama3.2 model (2GB)', 'cancel'], {placeHolder: 'ollama model not found. Do you want to pull it?'});
+            if(res === 'pull llama3.2 model (2GB)'){
+                await vscode.window.withProgress({
+                    location: vscode.ProgressLocation.Notification,
+                    title: 'Pulling llama3.2 model (2GB)',
+                    cancellable: true
+                }, async (progress, token) => {
+                    const downloadResp = await ollama.pull({model: 'llama3.2:3b', stream: true});
+                    token.onCancellationRequested(() => {
+                        downloadResp.abort();
+                    
+                    });
+                    let previous = 0;
+                    for await (const chunk of downloadResp) {
+                        console.log(chunk);
+                        progress.report({increment: (chunk.completed-previous)/chunk.total*100});
+                        previous = chunk.completed;
+                    }
+                    progress.report({increment: 100-previous});
+                });
+                vscode.window.showInformationMessage('llama3.2 model (2GB) pulled successfully.');
+            }
+            else{
+                vscode.window.showInformationMessage('ollama model not found. Please pull it before using it.');
+                return;
+            }
+        }
+        return new OllamaLLM();
     }
 
     sendRequest(messages: vscode.LanguageModelChatMessage[], options?: vscode.LanguageModelChatRequestOptions, token?: vscode.CancellationToken): Thenable<vscode.LanguageModelChatResponse> {
@@ -53,7 +81,7 @@ export class OllamaLLM implements vscode.LanguageModelChat {
             const lmOptions = Object.assign({}, defaultOptions, options);
             try {
                 const response = await ollama.chat({
-                    model: 'llama3.2',
+                    model: 'llama3.2:3b',
                     messages: stringMessages,
                     stream: true,
                     options: lmOptions

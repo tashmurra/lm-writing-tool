@@ -52,7 +52,6 @@ class LMWritingTool {
 	dc: vscode.DiagnosticCollection;
 	corrections: Map<string, LocatedCorrection[]>;
 	taskScheduler: TaskScheduler;
-	//lmCallback: (document: vscode.TextDocument) => void;
 
 	/**
 	 * 
@@ -334,7 +333,10 @@ export async function activate(context: vscode.ExtensionContext) {
 			vendor: 'copilot',
 			family: 'gpt-4o-mini'
 		});
-		models.push(new OllamaLLM());
+		const ollamaLLM = await OllamaLLM.create();
+		if (ollamaLLM) {
+			models.push(ollamaLLM);
+		}
 		if (models.length === 0) {
 			throw new Error("No models found.");
 		}
@@ -352,6 +354,7 @@ export async function activate(context: vscode.ExtensionContext) {
 			}
 			model = matchingModel;
 		}
+		vscode.window.showInformationMessage(`Selected model: ${model.vendor}: ${model.family} ${model.version}`);
 		return model;
 	}
 	context.subscriptions.push(

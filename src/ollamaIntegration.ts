@@ -28,6 +28,13 @@ export class OllamaLLM implements vscode.LanguageModelChat {
     }
 
     static async create(){
+        try {
+            await ollama.list();
+        }catch (error) {
+            console.warn('Could not reach ollama server', error);
+            vscode.window.showWarningMessage('Error creating OllamaLLM instance: ' + error);
+            return;
+        }
         const availableModels = await ollama.list();
         if(availableModels.models.filter(model=> model.model === 'llama3.2:3b').length !==1){
             const res = await vscode.window.showQuickPick(['pull llama3.2 model (2GB)', 'cancel'], {placeHolder: 'ollama model not found. Do you want to pull it?'});

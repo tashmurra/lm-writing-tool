@@ -57,6 +57,7 @@ When the first command is executed, a dialog appears allowing users to select ei
 ## Contributing  
 
 Contributions are welcome! Feel free to:  
+
 - Open an issue  
 - Submit a pull request  
-- Contact me directly: [peteole2707@gmail.com](mailto:peteole2707@gmail.com)  
+- Contact me directly: [peteole2707@gmail.com](mailto:peteole2707@gmail.com)

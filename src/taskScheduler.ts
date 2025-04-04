@@ -77,4 +77,13 @@ export class TaskScheduler {
             });
         }
     }
+    /**
+     * Abort all running tasks
+     */
+    async abortAll() {
+        for (const [id, task] of this.runningTasks) {
+            await task.abort();
+            this.runningTasks.delete(id);
+        }
+    }
 }

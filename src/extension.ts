@@ -447,14 +447,22 @@ export async function activate(context: vscode.ExtensionContext) {
 				clearInterval(interval);
 				textCheckJobs.delete(te);
 			}
+			const lmwt = await getLMWT();
+			lmwt.taskScheduler.setTasks(new Map(), te.document.uri.toString());
+			lmwt.dc.set(te.document.uri, []);
+			lmwt.corrections.delete(te.document.uri.toString());
 		})
 	);
 	// Cleanup the interval on extension deactivation
-	function stopAllJobs() {
+	async function stopAllJobs() {
 		for (const [te,interval] of textCheckJobs.entries()) {
 			clearInterval(interval);
 			textCheckJobs.delete(te);
 		}
+		const lmwt = await getLMWT();
+		lmwt.taskScheduler.abortAll();
+		lmwt.dc.clear();
+		lmwt.corrections.clear();
 	}
 	context.subscriptions.push({
 		dispose: stopAllJobs

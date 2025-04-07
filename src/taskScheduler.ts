@@ -26,6 +26,7 @@ export class TaskScheduler {
      * - Add any new tasks to the pending tasks list (identified by hash)
      * - Do nothing for tasks that are already running (identified by hash)
      * - Update the priority of tasks that are already pending (identified by hash), overwriting the old priority
+     * - Remove any tasks that are no longer in the pending list (identified by hash)
      * - Start tasks in the pending list if there are fewer than concurrentTasks running tasks
      * @param tasks A map from a unique identifier of the task to the task object
      * @param group
@@ -41,7 +42,15 @@ export class TaskScheduler {
         }
         for (const [id,t] of tasks) {
             if(!this.runningTasks.has(id)){
+                // If the task is not in the running tasks list, add it to the pending tasks list
+                // This overwrites the old priority if it exists
                 this.pendingTasks.set(id,t);
+            }
+        }
+        for (const [id,t] of this.pendingTasks) {
+            // If the task is not in the new tasks list, remove it from the pending tasks list
+            if(t.group === group && !tasks.has(id)){
+                this.pendingTasks.delete(id);
             }
         }
         this.reschedule();

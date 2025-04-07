@@ -71,7 +71,7 @@ class LMWritingTool {
 		this.taskScheduler = new TaskScheduler(1);
 		//this.lmCallback = lmCallback;
 	}
-	async getFullResponse(prompt: string, token: vscode.CancellationToken): Promise<string|undefined> {
+	async getFullResponse(prompt: string, token: vscode.CancellationToken): Promise<string | undefined> {
 		try {
 			const response = await this.lm.sendRequest([
 				vscode.LanguageModelChatMessage.User(prompt)
@@ -111,7 +111,7 @@ class LMWritingTool {
 	}
 
 	async getRewriteSuggestion(text: string, token: vscode.CancellationToken): Promise<string> {
-		const resp = await this.getFullResponse(`Rewrite the following text for clarity in American English. Do not change special commands, code, escape characters, or mathematical formulas. Respond just with the rewritten version of the text, no extra explanation:\n${text}`,token);
+		const resp = await this.getFullResponse(`Rewrite the following text for clarity in American English. Do not change special commands, code, escape characters, or mathematical formulas. Respond just with the rewritten version of the text, no extra explanation:\n${text}`, token);
 		if (!resp) {
 			return text;
 		}
@@ -192,7 +192,9 @@ class LMWritingTool {
 					async run() {
 						console.info(`Requesting diagnostics for ${snippet.text}`);
 						await lmwt.getSnippetDiagnostics(snippet.text, cancellationToken.token);
-						lmwt.checkDocument(document);
+						if (!cancellationToken.token.isCancellationRequested) {
+							lmwt.checkDocument(document);
+						}
 					},
 					async abort() {
 						console.info(`Aborting diagnostics request for ${snippet.text}`);
@@ -455,7 +457,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	);
 	// Cleanup the interval on extension deactivation
 	async function stopAllJobs() {
-		for (const [te,interval] of textCheckJobs.entries()) {
+		for (const [te, interval] of textCheckJobs.entries()) {
 			clearInterval(interval);
 			textCheckJobs.delete(te);
 		}

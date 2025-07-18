@@ -88,34 +88,20 @@ jobs:
           echo "filename=$PACKAGE_NAME-$VERSION.vsix" >> $GITHUB_OUTPUT
 
       - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: v${{ steps.package.outputs.version }}
-          release_name: Release v${{ steps.package.outputs.version }}
-          body: |
-            ## Changes in v${{ steps.package.outputs.version }}
-            
-            Auto-generated release for version ${{ steps.package.outputs.version }}.
-            
-            ### Installation
-            Download the `.vsix` file and install it in VS Code using:
-            - Command Palette: `Extensions: Install from VSIX...`
-            - Or use CLI: `code --install-extension ${{ steps.package.outputs.filename }}`
-          draft: false
-          prerelease: false
+        run: |
+          gh release create v${{ steps.package.outputs.version }} \
+            ./${{ steps.package.outputs.filename }} \
+            --title "Release v${{ steps.package.outputs.version }}" \
+            --notes "## Changes in v${{ steps.package.outputs.version }}
 
-      - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./${{ steps.package.outputs.filename }}
-          asset_name: ${{ steps.package.outputs.filename }}
-          asset_content_type: application/zip
+          Auto-generated release for version ${{ steps.package.outputs.version }}.
+
+          ### Installation
+          Download the \`.vsix\` file and install it in VS Code using:
+          - Command Palette: \`Extensions: Install from VSIX...\`
+          - Or use CLI: \`code --install-extension ${{ steps.package.outputs.filename }}\`"
 
   # Optional: Also publish to VS Code Marketplace
   # Uncomment and configure if you want to publish to the marketplace as well

@@ -31,7 +31,8 @@ jobs:
         run: yarn run package
 
       - name: Run tests
-        run: yarn run test
+        run: xvfb-run -a yarn run test
         env:
           # Run tests in headless mode
           CI: true
+          DISPLAY: :99

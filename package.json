@@ -2,7 +2,7 @@
   "name": "lm-writing-tool",
   "displayName": "LLM Writing Tool",
   "description": "LLM-powered writing tool for VSCode. Checks your grammer using Ollama or Github Copilot.",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "engines": {
     "vscode": "^1.102.0"
   },
@@ -43,6 +43,10 @@
       {
         "command": "lm-writing-tool.resetPrompts",
         "title": "LLM writing tool: Reset prompts to defaults"
+      },
+      {
+        "command": "lm-writing-tool.resetSettings",
+        "title": "LLM writing tool: Reset all settings to defaults"
       }
     ],
     "configuration": {
@@ -62,6 +66,11 @@
           "type": "string",
           "default": "Give up to 5 synonyms for the expression \"{expression}\". Just respond with the synonyms, separated by newlines. No extra explanation or context needed.",
           "description": "System prompt for finding synonyms. Use {expression} as a placeholder for the expression to find synonyms for."
+        },
+        "lmWritingTool.ollama.model": {
+          "type": "string",
+          "default": "llama3.2:3b",
+          "description": "The Ollama model to use for text processing. Make sure the model is available on your local Ollama server."
         }
       }
     }
@@ -102,5 +111,6 @@
     "type": "git",
     "url": "https://github.com/peteole/lm-writing-tool"
   },
-  "icon": "resources/logo.png"
+  "icon": "resources/logo.png",
+  "license": "MIT"
 }

@@ -13,7 +13,8 @@ This extension bridges the gap by leveraging large language models (LLMs). It ch
 - **Choice of models**: Use a local `llama3.2:3b` model via [Ollama](https://ollama.com/) or `gpt-40-mini` through the [VSCode LM API](https://code.visualstudio.com/api/extension-guides/language-model)  
 - **Rewrite suggestions** to improve clarity  
 - **Synonym recommendations** for better word choices  
-- **Configurable system prompts** to customize language variant, writing style, and behavior  
+- **Configurable system prompts** to customize language variant, writing style, and behavior
+- **Configurable Ollama models** to use any local model that fits your needs and hardware  
 
 ## Commands  
 
@@ -36,13 +37,16 @@ When the first command is executed, a dialog appears allowing users to select ei
   Selects the LLM model to use for grammar checking. Stops real-time grammar checking if it is running.
 - **"LLM writing tool: Reset prompts to defaults"**
   Resets all customized system prompts back to their default values.
+- **"LLM writing tool: Reset all settings to defaults"**
+  Resets all extension settings (prompts and Ollama model) back to their default values.
 
 ## Configuration
 
-The extension now supports configurable system prompts, allowing you to customize how the LLM interacts with your text. This enables you to:
+The extension now supports configurable system prompts and Ollama model selection, allowing you to customize how the LLM interacts with your text. This enables you to:
 
 - **Change the language variant** (e.g., British English instead of American English)
 - **Adjust the writing style** (e.g., formal vs. casual tone)
+- **Use different Ollama models** (e.g., faster or higher-quality models)
 - **Modify the number of synonyms** returned
 - **Customize the behavior** for specific use cases
 
@@ -53,6 +57,8 @@ The extension now supports configurable system prompts, allowing you to customiz
 3. Configure the three available prompt settings:
 
 ### Available Settings
+
+**Prompt Configuration:**
 
 - **`lmWritingTool.prompts.proofreading`**  
   Controls how the extension checks for grammar and spelling errors.  
@@ -65,6 +71,13 @@ The extension now supports configurable system prompts, allowing you to customiz
 - **`lmWritingTool.prompts.synonyms`**  
   Controls how the extension finds synonyms for selected expressions.  
   *Default*: Provides up to 5 synonyms.
+
+**Ollama Configuration:**
+
+- **`lmWritingTool.ollama.model`**  
+  Specifies which Ollama model to use for local text processing.  
+  *Default*: `llama3.2:3b`  
+  *Examples*: `llama3.2:1b`, `llama3.1:8b`, `codellama:7b`, `mistral:7b`
 
 ### Placeholders
 
@@ -93,12 +106,22 @@ Rewrite the following text in a formal, academic tone using British English. Mai
 Give up to 10 synonyms for the expression "{expression}". Provide varied alternatives including formal and informal options. Just respond with the synonyms, separated by newlines.
 ```
 
-### Resetting Prompts
+**Using a different Ollama model:**
 
-To reset all prompts to their default values:
+Set `lmWritingTool.ollama.model` to `llama3.1:8b` for better quality (but slower) processing, or `llama3.2:1b` for faster (but lower quality) processing.
+
+### Resetting Settings
+
+**Reset prompts only:**
 
 1. Open the Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`)
 2. Type "LLM writing tool: Reset prompts to defaults"
+3. Press Enter
+
+**Reset all settings (prompts + Ollama model):**
+
+1. Open the Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`)
+2. Type "LLM writing tool: Reset all settings to defaults"
 3. Press Enter
 
 ## Installation  

@@ -480,6 +480,21 @@ export async function activate(context: vscode.ExtensionContext) {
 	);
 
 	context.subscriptions.push(
+		vscode.commands.registerCommand('lm-writing-tool.resetSettings', async () => {
+			const promptsConfig = vscode.workspace.getConfiguration('lmWritingTool.prompts');
+			const ollamaConfig = vscode.workspace.getConfiguration('lmWritingTool.ollama');
+
+			// Reset all prompts to their default values
+			await promptsConfig.update('proofreading', undefined, vscode.ConfigurationTarget.Global);
+			await promptsConfig.update('rewrite', undefined, vscode.ConfigurationTarget.Global);
+			await promptsConfig.update('synonyms', undefined, vscode.ConfigurationTarget.Global);
+
+			// Reset Ollama model to default
+			await ollamaConfig.update('model', undefined, vscode.ConfigurationTarget.Global);
+
+			vscode.window.showInformationMessage('All extension settings have been reset to their default values');
+		})
+	); context.subscriptions.push(
 		vscode.commands.registerTextEditorCommand('lm-writing-tool.stopTextCheckCurrentDocument', async (te) => {
 			const interval = textCheckJobs.get(te);
 			if (interval) {

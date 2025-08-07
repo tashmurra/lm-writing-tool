@@ -18,53 +18,71 @@ export class OllamaLLM implements vscode.LanguageModelChat {
     family: string;
     version: string;
     maxInputTokens: number;
-    constructor() {
+
+    private getConfiguredModel(): string {
+        const config = vscode.workspace.getConfiguration('lmWritingTool.ollama');
+        return config.get<string>('model') || 'llama3.2:3b';
+    }
+
+    constructor(familiy: string, version: string) {
         this.name = 'ollama';
         this.id = 'ollama';
         this.vendor = 'ollama';
-        this.family = 'llama';
-        this.version = '3.2';
+        this.family = familiy;
+        this.version = version;
         this.maxInputTokens = 1024;
     }
 
-    static async create(){
+    static async create() {
         try {
             await ollama.list();
-        }catch (error) {
+        } catch (error) {
             console.warn('Could not reach ollama server', error);
             vscode.window.showWarningMessage('Error creating OllamaLLM instance: ' + error);
             return;
         }
+
+        // Get the configured model
+        const config = vscode.workspace.getConfiguration('lmWritingTool.ollama');
+        const configuredModel = config.get<string>('model') || 'llama3.2:3b';
+
         const availableModels = await ollama.list();
-        if(availableModels.models.filter(model=> model.model === 'llama3.2:3b').length !==1){
-            const res = await vscode.window.showQuickPick(['pull llama3.2 model (2GB)', 'cancel'], {placeHolder: 'ollama model not found. Do you want to pull it?'});
-            if(res === 'pull llama3.2 model (2GB)'){
+        if (availableModels.models.filter(model => model.model === configuredModel).length !== 1) {
+            const res = await vscode.window.showQuickPick([`pull ${configuredModel} model`, 'cancel'], { placeHolder: `ollama model '${configuredModel}' not found. Do you want to pull it?` });
+            if (res === `pull ${configuredModel} model`) {
                 await vscode.window.withProgress({
                     location: vscode.ProgressLocation.Notification,
-                    title: 'Pulling llama3.2 model (2GB)',
+                    title: `Pulling ${configuredModel} model`,
                     cancellable: true
                 }, async (progress, token) => {
-                    const downloadResp = await ollama.pull({model: 'llama3.2:3b', stream: true});
+                    const downloadResp = await ollama.pull({ model: configuredModel, stream: true });
                     token.onCancellationRequested(() => {
                         downloadResp.abort();
-                    
+
                     });
                     let previous = 0;
                     for await (const chunk of downloadResp) {
                         console.log(chunk);
-                        progress.report({increment: (chunk.completed-previous)/chunk.total*100});
-                        previous = chunk.completed;
+                        if (chunk.total && chunk.completed !== undefined) {
+                            progress.report({ increment: (chunk.completed - previous) / chunk.total * 100 });
+                            previous = chunk.completed;
+                        }
                     }
-                    progress.report({increment: 100-previous});
+                    progress.report({ increment: 100 - previous });
                 });
-                vscode.window.showInformationMessage('llama3.2 model (2GB) pulled successfully.');
+                vscode.window.showInformationMessage(`${configuredModel} model pulled successfully.`);
             }
-            else{
-                vscode.window.showInformationMessage('ollama model not found. Please pull it before using it.');
+            else {
+                vscode.window.showInformationMessage(`ollama model '${configuredModel}' not found. Please pull it before using it or change the model in settings.`);
                 return;
             }
         }
-        return new OllamaLLM();
+        const parts = configuredModel.split(':');
+        if (parts.length !== 2) {
+
+            return new OllamaLLM(configuredModel, "");
+        }
+        return new OllamaLLM(parts[0], parts[1]);
     }
 
     sendRequest(messages: vscode.LanguageModelChatMessage[], options?: vscode.LanguageModelChatRequestOptions, token?: vscode.CancellationToken): Thenable<vscode.LanguageModelChatResponse> {
@@ -87,8 +105,9 @@ export class OllamaLLM implements vscode.LanguageModelChat {
             };
             const lmOptions = Object.assign({}, defaultOptions, options);
             try {
+                const configuredModel = this.getConfiguredModel();
                 const response = await ollama.chat({
-                    model: 'llama3.2:3b',
+                    model: configuredModel,
                     messages: stringMessages,
                     stream: true,
                     options: lmOptions

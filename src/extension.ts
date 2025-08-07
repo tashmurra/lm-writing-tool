@@ -71,6 +71,27 @@ class LMWritingTool {
 		this.taskScheduler = new TaskScheduler(1);
 		//this.lmCallback = lmCallback;
 	}
+
+	private getProofreadingPrompt(text: string): string {
+		const config = vscode.workspace.getConfiguration('lmWritingTool.prompts');
+		const template = config.get<string>('proofreading') ||
+			'Proofread the following message in American English. If it is gramatically correct, just respond with the word "Correct". If it is gramatically incorrect or has spelling mistakes, respond with "Correction: ", followed by the corrected version. If you make a correction, write the whole corrected text, not just the segments with corrections. Do not add additional text or explanations. Do not change special commands, code, escape characters, or mathematical formulas. Only correct grammatical issues, do not change the content:\n{text}';
+		return template.replace('{text}', text);
+	}
+
+	private getRewritePrompt(text: string): string {
+		const config = vscode.workspace.getConfiguration('lmWritingTool.prompts');
+		const template = config.get<string>('rewrite') ||
+			'Rewrite the following text for clarity in American English. Do not change special commands, code, escape characters, or mathematical formulas. Respond just with the rewritten version of the text, no extra explanation:\n{text}';
+		return template.replace('{text}', text);
+	}
+
+	private getSynonymsPrompt(expression: string): string {
+		const config = vscode.workspace.getConfiguration('lmWritingTool.prompts');
+		const template = config.get<string>('synonyms') ||
+			'Give up to 5 synonyms for the expression "{expression}". Just respond with the synonyms, separated by newlines. No extra explanation or context needed.';
+		return template.replace('{expression}', expression);
+	}
 	async getFullResponse(prompt: string, token: vscode.CancellationToken): Promise<string | undefined> {
 		try {
 			const response = await this.lm.sendRequest([
@@ -92,7 +113,8 @@ class LMWritingTool {
 		}
 	}
 	async getTextSnippetDiagnostic(text: string, token: vscode.CancellationToken): Promise<TextSnippetDiagnostic> {
-		const resp = await this.getFullResponse(`Proofread the following message in American English. If it is gramatically correct, just respond with the word "Correct". If it is gramatically incorrect or has spelling mistakes, respond with "Correction: ", followed by the corrected version. If you make a correction, write the whole corrected text, not just the segments with corrections. Do not add additional text or explanations. Do not change special commands, code, escape characters, or mathematical formulas. Only correct grammatical issues, do not change the content:\n${text}`, token);
+		const prompt = this.getProofreadingPrompt(text);
+		const resp = await this.getFullResponse(prompt, token);
 		if (!resp) {
 			throw new Error('No response');
 		}
@@ -111,7 +133,8 @@ class LMWritingTool {
 	}
 
 	async getRewriteSuggestion(text: string, token: vscode.CancellationToken): Promise<string> {
-		const resp = await this.getFullResponse(`Rewrite the following text for clarity in American English. Do not change special commands, code, escape characters, or mathematical formulas. Respond just with the rewritten version of the text, no extra explanation:\n${text}`, token);
+		const prompt = this.getRewritePrompt(text);
+		const resp = await this.getFullResponse(prompt, token);
 		if (!resp) {
 			return text;
 		}
@@ -119,7 +142,8 @@ class LMWritingTool {
 	}
 
 	async getSynonyms(expression: string, token: vscode.CancellationToken): Promise<string[]> {
-		const resp = await this.getFullResponse(`Give up to 5 synonyms for the expression "${expression}". Just respond with the synonyms, separated by newlines. No extra explanation or context needed.`, token);
+		const prompt = this.getSynonymsPrompt(expression);
+		const resp = await this.getFullResponse(prompt, token);
 		if (!resp) {
 			return [];
 		}
@@ -439,6 +463,19 @@ export async function activate(context: vscode.ExtensionContext) {
 				edit.replace(openTextDocument.uri, te.selection, pick);
 				await vscode.workspace.applyEdit(edit);
 			}
+		})
+	);
+
+	context.subscriptions.push(
+		vscode.commands.registerCommand('lm-writing-tool.resetPrompts', async () => {
+			const config = vscode.workspace.getConfiguration('lmWritingTool.prompts');
+
+			// Reset all prompts to their default values
+			await config.update('proofreading', undefined, vscode.ConfigurationTarget.Global);
+			await config.update('rewrite', undefined, vscode.ConfigurationTarget.Global);
+			await config.update('synonyms', undefined, vscode.ConfigurationTarget.Global);
+
+			vscode.window.showInformationMessage('All prompts have been reset to their default values');
 		})
 	);
 

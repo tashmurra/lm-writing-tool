@@ -13,6 +13,7 @@ This extension bridges the gap by leveraging large language models (LLMs). It ch
 - **Choice of models**: Use a local `llama3.2:3b` model via [Ollama](https://ollama.com/) or `gpt-40-mini` through the [VSCode LM API](https://code.visualstudio.com/api/extension-guides/language-model)  
 - **Rewrite suggestions** to improve clarity  
 - **Synonym recommendations** for better word choices  
+- **Configurable system prompts** to customize language variant, writing style, and behavior  
 
 ## Commands  
 
@@ -33,6 +34,72 @@ When the first command is executed, a dialog appears allowing users to select ei
   Suggests synonyms for the selected expression.
 - **"LLM writing tool: Select model"**
   Selects the LLM model to use for grammar checking. Stops real-time grammar checking if it is running.
+- **"LLM writing tool: Reset prompts to defaults"**
+  Resets all customized system prompts back to their default values.
+
+## Configuration
+
+The extension now supports configurable system prompts, allowing you to customize how the LLM interacts with your text. This enables you to:
+
+- **Change the language variant** (e.g., British English instead of American English)
+- **Adjust the writing style** (e.g., formal vs. casual tone)
+- **Modify the number of synonyms** returned
+- **Customize the behavior** for specific use cases
+
+### Accessing Settings
+
+1. Open VS Code Settings (`Cmd+,` on macOS, `Ctrl+,` on Windows/Linux)
+2. Search for "LLM Writing Tool"
+3. Configure the three available prompt settings:
+
+### Available Settings
+
+- **`lmWritingTool.prompts.proofreading`**  
+  Controls how the extension checks for grammar and spelling errors.  
+  *Default*: Checks for American English grammar and spelling mistakes.
+
+- **`lmWritingTool.prompts.rewrite`**  
+  Controls how the extension rewrites text for clarity.  
+  *Default*: Rewrites text for clarity in American English.
+
+- **`lmWritingTool.prompts.synonyms`**  
+  Controls how the extension finds synonyms for selected expressions.  
+  *Default*: Provides up to 5 synonyms.
+
+### Placeholders
+
+When customizing prompts, use these placeholders:
+
+- `{text}` - The text to be processed (for proofreading and rewrite prompts)
+- `{expression}` - The selected expression (for synonyms prompt)
+
+### Example Customizations
+
+**British English proofreading:**
+
+```text
+Proofread the following message in British English. If it is grammatically correct, just respond with the word "Correct". If it is grammatically incorrect or has spelling mistakes, respond with "Correction: ", followed by the corrected version. Use British spelling and grammar conventions.\n{text}
+```
+
+**Formal writing style:**
+
+```text
+Rewrite the following text in a formal, academic tone using British English. Maintain the original meaning while improving clarity and formality:\n{text}
+```
+
+**More synonyms:**
+
+```text
+Give up to 10 synonyms for the expression "{expression}". Provide varied alternatives including formal and informal options. Just respond with the synonyms, separated by newlines.
+```
+
+### Resetting Prompts
+
+To reset all prompts to their default values:
+
+1. Open the Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`)
+2. Type "LLM writing tool: Reset prompts to defaults"
+3. Press Enter
 
 ## Installation  
 

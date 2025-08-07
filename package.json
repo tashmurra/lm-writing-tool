@@ -2,9 +2,9 @@
   "name": "lm-writing-tool",
   "displayName": "LLM Writing Tool",
   "description": "LLM-powered writing tool for VSCode. Checks your grammer using Ollama or Github Copilot.",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "engines": {
-    "vscode": "^1.96.0"
+    "vscode": "^1.102.0"
   },
   "publisher": "OlePetersen",
   "categories": [
@@ -39,8 +39,32 @@
       {
         "command": "lm-writing-tool.selectModel",
         "title": "LLM writing tool: Select model"
+      },
+      {
+        "command": "lm-writing-tool.resetPrompts",
+        "title": "LLM writing tool: Reset prompts to defaults"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "LLM Writing Tool",
+      "properties": {
+        "lmWritingTool.prompts.proofreading": {
+          "type": "string",
+          "default": "Proofread the following message in American English. If it is gramatically correct, just respond with the word \"Correct\". If it is gramatically incorrect or has spelling mistakes, respond with \"Correction: \", followed by the corrected version. If you make a correction, write the whole corrected text, not just the segments with corrections. Do not add additional text or explanations. Do not change special commands, code, escape characters, or mathematical formulas. Only correct grammatical issues, do not change the content:\n{text}",
+          "description": "System prompt for proofreading text. Use {text} as a placeholder for the text to be proofread."
+        },
+        "lmWritingTool.prompts.rewrite": {
+          "type": "string",
+          "default": "Rewrite the following text for clarity in American English. Do not change special commands, code, escape characters, or mathematical formulas. Respond just with the rewritten version of the text, no extra explanation:\n{text}",
+          "description": "System prompt for rewriting text. Use {text} as a placeholder for the text to be rewritten."
+        },
+        "lmWritingTool.prompts.synonyms": {
+          "type": "string",
+          "default": "Give up to 5 synonyms for the expression \"{expression}\". Just respond with the synonyms, separated by newlines. No extra explanation or context needed.",
+          "description": "System prompt for finding synonyms. Use {expression} as a placeholder for the expression to find synonyms for."
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "yarn run package",

@@ -36,6 +36,7 @@ GitHub Copilot and `openai` for OpenAI's API."
   :type 'string
   :group 'lm-writing-tool)
 
+;;;###autoload
 (defcustom lmwt-ollama-model "llama3"
   "Model to use when talking to an Ollama server."
   :type 'string
@@ -155,18 +156,21 @@ request is finished, CALLBACK is called with nil."
 
 ;;;; Proofreading and corrections
 
+;;;###autoload
 (defcustom lmwt-proofreading-prompt
   "Proofread the following message in American English. If it is gramatically correct, just respond with the word \"Correct\". If it is gramatically incorrect or has spelling mistakes, respond with \"Correction: \" followed by the corrected version."
   "Prompt template used for proofreading.  The snippet to proofread is appended to this string."
   :type 'string
   :group 'lm-writing-tool)
 
+;;;###autoload
 (defcustom lmwt-rewrite-prompt
   "Rewrite the following text for clarity in American English. Do not change special commands, code, escape characters, or mathematical formulas. Respond just with the rewritten version of the text, no extra explanation."
   "Prompt template used for rewriting text.  The snippet to rewrite is appended to this string."
   :type 'string
   :group 'lm-writing-tool)
 
+;;;###autoload
 (defcustom lmwt-synonyms-prompt
   "Give up to 5 synonyms for the following expression. Just respond with the synonyms, separated by newlines. No extra explanation or context needed."
   "Prompt template used for finding synonyms.  The expression to inspect is appended to this string."
@@ -411,6 +415,35 @@ Synonyms are fetched from the configured LLM and presented via
       (let ((choice (completing-read "Choose synonym: " options nil t expr)))
         (delete-region beg end)
         (insert choice)))))
+
+;;;; Model selection
+
+;;;###autoload
+(defun lmwt-select-model ()
+  "Interactively select the LLM provider and model.
+The choice is persisted via `customize-save-variable'."
+  (interactive)
+  (let* ((providers '(("Local Ollama" . ollama)
+                      ("OpenAI" . openai)
+                      ("GitHub Copilot" . github)))
+         (current (car (rassoc lmwt-provider providers)))
+         (selection (completing-read "Select provider: " (mapcar #'car providers)
+                                     nil t nil nil current))
+         (provider (cdr (assoc selection providers))))
+    (pcase provider
+      ('ollama
+       (let ((model (read-string (format "Ollama model (current %s): " lmwt-ollama-model)
+                                   nil nil lmwt-ollama-model)))
+         (setq lmwt-ollama-model model)
+         (customize-save-variable 'lmwt-ollama-model model)))
+      ('openai
+       (let ((model (read-string (format "OpenAI model (current %s): " lmwt-openai-model)
+                                   nil nil lmwt-openai-model)))
+         (setq lmwt-openai-model model)
+         (customize-save-variable 'lmwt-openai-model model))))
+    (setq lmwt-provider provider)
+    (customize-save-variable 'lmwt-provider provider)
+    (message "LM Writing Tool provider set to %s" provider)))
 
 ;;;###autoload
 (define-minor-mode lm-writing-tool-mode

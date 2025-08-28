@@ -1,0 +1,44 @@
+* LM Writing Tool for Emacs
+This directory provides an Emacs Lisp package that integrates the LM Writing Tool with Emacs.
+
+** Installation
+1. Download `lm-writing-tool.el` and place it in your `load-path`.
+   Alternatively, clone the repository and add the `emacs` directory to your `load-path`:
+   #+begin_src emacs-lisp
+   (add-to-list 'load-path "/path/to/lm-writing-tool/emacs")
+   #+end_src
+2. Load the library:
+   #+begin_src emacs-lisp
+   (require 'lm-writing-tool)
+   #+end_src
+3. Enable the minor mode in a buffer:
+   #+begin_src emacs-lisp
+   (lm-writing-tool-mode 1)
+   #+end_src
+
+** Configuration
+Customize the group `lm-writing-tool` to configure the package. Useful options include:
+
+- `lmwt-provider` :: Backend to use for language model requests.  Choose from `ollama` for a local Ollama server, `github` for GitHub Copilot, or `openai` for OpenAI's API.
+- `lmwt-ollama-url` :: Endpoint of the local Ollama server.
+- `lmwt-ollama-model` :: Model to use when speaking to Ollama.
+- `lmwt-openai-model` :: Model to use for OpenAI requests.
+- `lmwt-openai-token` :: Authentication token for OpenAI.
+- `lmwt-github-token` :: Authentication token for GitHub Copilot.
+- `lmwt-proofreading-prompt` :: Prompt template used when proofreading.
+- `lmwt-rewrite-prompt` :: Prompt template used when rewriting text.
+- `lmwt-synonyms-prompt` :: Prompt template used when asking for synonyms.
+
+Use `M-x customize-group RET lm-writing-tool RET` to adjust these variables.
+
+** Commands
+The minor mode provides several interactive commands:
+
+- `lmwt-check-buffer` – Proofread the current buffer and highlight suggested corrections.
+- `lmwt-apply-correction` – Apply the correction at point.
+- `lmwt-rewrite-region` – Rewrite the selected region.
+- `lmwt-synonyms` – Offer synonyms for the selected region.
+- `lmwt-select-model` – Choose provider and model interactively.
+
+** Requirements
+The package requires Emacs 24.3 or newer and access to the selected language model backend.

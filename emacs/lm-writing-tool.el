@@ -161,6 +161,18 @@ request is finished, CALLBACK is called with nil."
   :type 'string
   :group 'lm-writing-tool)
 
+(defcustom lmwt-rewrite-prompt
+  "Rewrite the following text for clarity in American English. Do not change special commands, code, escape characters, or mathematical formulas. Respond just with the rewritten version of the text, no extra explanation."
+  "Prompt template used for rewriting text.  The snippet to rewrite is appended to this string."
+  :type 'string
+  :group 'lm-writing-tool)
+
+(defcustom lmwt-synonyms-prompt
+  "Give up to 5 synonyms for the following expression. Just respond with the synonyms, separated by newlines. No extra explanation or context needed."
+  "Prompt template used for finding synonyms.  The expression to inspect is appended to this string."
+  :type 'string
+  :group 'lm-writing-tool)
+
 (defvar lmwt--diagnostics-cache (make-hash-table :test 'equal)
   "Cache mapping text snippets to diagnostics.")
 
@@ -359,6 +371,46 @@ Returns a list of plists with :start, :end and :to-insert."
   "Check current buffer for issues and highlight suggested corrections."
   (interactive)
   (lmwt-highlight-corrections))
+
+;;;; Rewriting and synonyms
+
+;;;###autoload
+(defun lmwt-rewrite-region (beg end)
+  "Rewrite the region between BEG and END using the configured LLM.
+Displays the rewritten text in a temporary buffer and replaces the
+original region after confirmation."
+  (interactive "r")
+  (unless (use-region-p)
+    (user-error "No region selected"))
+  (let* ((text (buffer-substring-no-properties beg end))
+         (resp (lmwt-request-sync text lmwt-rewrite-prompt))
+         (buf (get-buffer-create "*lmwt-rewrite*")))
+    (with-current-buffer buf
+      (erase-buffer)
+      (insert resp)
+      (goto-char (point-min)))
+    (display-buffer buf)
+    (when (yes-or-no-p "Insert rewrite? ")
+      (delete-region beg end)
+      (insert resp))
+    (kill-buffer buf)))
+
+;;;###autoload
+(defun lmwt-synonyms (beg end)
+  "Offer synonyms for the region between BEG and END and replace it.
+Synonyms are fetched from the configured LLM and presented via
+`completing-read'."
+  (interactive "r")
+  (unless (use-region-p)
+    (user-error "No region selected"))
+  (let* ((expr (buffer-substring-no-properties beg end))
+         (resp (lmwt-request-sync expr lmwt-synonyms-prompt))
+         (options (split-string resp "\n" t)))
+    (if (null options)
+        (message "No synonyms found")
+      (let ((choice (completing-read "Choose synonym: " options nil t expr)))
+        (delete-region beg end)
+        (insert choice)))))
 
 ;;;###autoload
 (define-minor-mode lm-writing-tool-mode

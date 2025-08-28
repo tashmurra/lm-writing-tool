@@ -95,6 +95,33 @@ finishes CALLBACK is invoked with nil."
          (kill-buffer (process-buffer proc)))))
     process))
 
+(defun lmwt--ollama-list-models ()
+  "Return list of available models from the local Ollama server.
+The base URL is derived from `lmwt-ollama-url'.  If the request
+fails or the response cannot be parsed, return nil."
+  (let* ((url-object (url-generic-parse-url lmwt-ollama-url))
+         (base (format "%s://%s%s"
+                       (url-type url-object)
+                       (url-host url-object)
+                       (if (url-portspec url-object)
+                           (format ":%d" (url-portspec url-object))
+                         "")))
+         (tags-url (concat base "/api/tags")))
+    (condition-case nil
+        (let ((buf (url-retrieve-synchronously tags-url t t 5)))
+          (when buf
+            (unwind-protect
+                (with-current-buffer buf
+                  (goto-char (point-min))
+                  (when (search-forward "\n\n" nil t)
+                    (let* ((json-object-type 'alist)
+                           (json-array-type 'list)
+                           (json (json-read))
+                           (models (alist-get 'models json)))
+                      (mapcar (lambda (m) (alist-get 'name m)) models))))
+              (kill-buffer buf))))
+      (error nil))))
+
 (defun lmwt--remote-headers ()
   "Return headers for the current remote provider."
   (pcase lmwt-provider
@@ -524,8 +551,12 @@ The choice is persisted via `customize-save-variable'."
          (provider (cdr (assoc selection providers))))
     (pcase provider
       ('ollama
-       (let ((model (read-string (format "Ollama model (current %s): " lmwt-ollama-model)
-                                   nil nil lmwt-ollama-model)))
+       (let* ((models (lmwt--ollama-list-models))
+              (model (if (and models (consp models))
+                         (completing-read (format "Ollama model (current %s): " lmwt-ollama-model)
+                                          models nil t nil nil lmwt-ollama-model)
+                       (read-string (format "Ollama model (current %s): " lmwt-ollama-model)
+                                    nil nil lmwt-ollama-model))))
          (setq lmwt-ollama-model model)
          (customize-save-variable 'lmwt-ollama-model model)))
       ('openai

@@ -148,10 +148,217 @@ finishes CALLBACK is called with nil."
   "Send TEXT to the configured LLM with PROMPT.
 CALLBACK receives chunks of the response as they arrive.  When the
 request is finished, CALLBACK is called with nil."
-  (pcase lmwt-provider
+(pcase lmwt-provider
     ('ollama (lmwt--request-ollama text prompt callback))
     ((or 'github 'openai) (lmwt--request-remote text prompt callback))
     (_ (error "Unknown provider %S" lmwt-provider))))
+
+;;;; Proofreading and corrections
+
+(defcustom lmwt-proofreading-prompt
+  "Proofread the following message in American English. If it is gramatically correct, just respond with the word \"Correct\". If it is gramatically incorrect or has spelling mistakes, respond with \"Correction: \" followed by the corrected version."
+  "Prompt template used for proofreading.  The snippet to proofread is appended to this string."
+  :type 'string
+  :group 'lm-writing-tool)
+
+(defvar lmwt--diagnostics-cache (make-hash-table :test 'equal)
+  "Cache mapping text snippets to diagnostics.")
+
+(cl-defstruct lmwt-snippet text beg end)
+
+(defun lmwt-split-buffer-by-line ()
+  "Split current buffer into line snippets.
+Return a list of `lmwt-snippet` structures containing text and
+buffer positions."
+  (save-excursion
+    (goto-char (point-min))
+    (let ((snippets '())
+          (line-beg (point-min)))
+      (while (< (point) (point-max))
+        (let* ((beg (point))
+               (end (line-end-position))
+               (text (buffer-substring-no-properties beg end)))
+          (push (make-lmwt-snippet :text text :beg beg :end end) snippets)
+          (setq line-beg (1+ end))
+          (goto-char line-beg)))
+      ;; Trailing newline results in empty snippet like VS Code implementation
+      (when (= (char-before (point-max)) ?\n)
+        (push (make-lmwt-snippet :text "" :beg (point-max) :end (point-max)) snippets))
+      (nreverse snippets))))
+
+(defun lmwt-request-sync (text prompt)
+  "Synchronously send TEXT with PROMPT to the configured LLM.
+Returns the complete response as a string."
+  (let ((result "")
+        (done nil))
+    (lmwt-request text prompt
+                  (lambda (chunk)
+                    (if chunk
+                        (setq result (concat result chunk))
+                      (setq done t))))
+    (while (not done)
+      (accept-process-output nil 0.1))
+    result))
+
+(defun lmwt-get-text-snippet-diagnostic (text)
+  "Return diagnostic information for TEXT, using cache when possible.
+The diagnostic is an alist containing `:corrected-version` when a
+correction was suggested."
+  (or (gethash text lmwt--diagnostics-cache)
+      (let* ((resp (lmwt-request-sync text lmwt-proofreading-prompt))
+             (diag (when (and resp (string-prefix-p "Correction: " resp))
+                     (list :corrected-version (substring resp (length "Correction: "))))))
+        (puthash text diag lmwt--diagnostics-cache)
+        diag)))
+
+(defun lmwt--diff-chars (a b)
+  "Return character diff between strings A and B.
+Result is a list of plists with keys :value, :added and :removed."
+  (let* ((n (length a))
+         (m (length b))
+         (matrix (make-vector (1+ n) nil)))
+    (dotimes (i (1+ n))
+      (aset matrix i (make-vector (1+ m) 0)))
+    (dotimes (i n)
+      (dotimes (j m)
+        (setf (aref (aref matrix (1+ i)) (1+ j))
+              (if (eq (aref a i) (aref b j))
+                  (1+ (aref (aref matrix i) j))
+                (max (aref (aref matrix i) (1+ j))
+                     (aref (aref matrix (1+ i)) j))))))
+    (let ((i n) (j m) (diff '()))
+      (while (and (> i 0) (> j 0))
+        (cond
+         ((eq (aref a (1- i)) (aref b (1- j)))
+          (push (list :value (string (aref a (1- i)))) diff)
+          (setq i (1- i) j (1- j)))
+         ((> (aref (aref matrix (1- i)) j) (aref (aref matrix i) (1- j)))
+          (push (list :value (string (aref a (1- i))) :removed t) diff)
+          (setq i (1- i)))
+         (t
+          (push (list :value (string (aref b (1- j))) :added t) diff)
+          (setq j (1- j)))))
+      (while (> i 0)
+        (push (list :value (string (aref a (1- i))) :removed t) diff)
+        (setq i (1- i)))
+      (while (> j 0)
+        (push (list :value (string (aref b (1- j))) :added t) diff)
+        (setq j (1- j)))
+      ;; merge adjacent segments of same type
+      (let ((merged '()))
+        (dolist (d diff)
+          (let ((prev (car merged)))
+            (if (and prev
+                     (eq (plist-get prev :added) (plist-get d :added))
+                     (eq (plist-get prev :removed) (plist-get d :removed)))
+                (setf (plist-get prev :value)
+                      (concat (plist-get prev :value) (plist-get d :value)))
+              (push (copy-sequence d) merged))))
+        (nreverse merged)))))
+
+(defun lmwt-apply-corrections (text corrections)
+  "Apply CORRECTIONS to TEXT and return the result.
+CORRECTIONS is a list of plists with :start, :end and :to-insert."
+  (let ((result text) (offset 0))
+    (dolist (c corrections)
+      (let ((s (+ (plist-get c :start) offset))
+            (e (+ (plist-get c :end) offset))
+            (ins (plist-get c :to-insert)))
+        (setq result (concat (substring result 0 s) ins (substring result e)))
+        (setq offset (+ offset (- (length ins) (- (plist-get c :end)
+                                             (plist-get c :start)))))))
+    result))
+
+(defun lmwt-calculate-corrections (original corrected)
+  "Calculate corrections to transform ORIGINAL into CORRECTED.
+Returns a list of plists with :start, :end and :to-insert."
+  (let* ((diffs (lmwt--diff-chars original corrected))
+         (corrections '())
+         (current 0)
+         (pending nil))
+    (dolist (d diffs)
+      (cond
+       ((plist-get d :added)
+        (if pending
+            (progn
+              (push (list :start (plist-get pending :start)
+                          :end (plist-get pending :end)
+                          :to-insert (plist-get d :value)) corrections)
+              (setq pending nil))
+          (push (list :start current :end current :to-insert (plist-get d :value)) corrections)))
+       ((plist-get d :removed)
+        (let ((len (length (plist-get d :value))))
+          (if pending
+              (setf (plist-get pending :end) (+ (plist-get pending :end) len))
+            (setq pending (list :start current :end (+ current len) :to-insert "")))
+          (setq current (+ current len))))
+       (t
+        (when pending
+          (push pending corrections)
+          (setq pending nil))
+        (setq current (+ current (length (plist-get d :value)))))))
+    (when pending (push pending corrections))
+    ;; collapse corrections to word boundaries similar to TypeScript version
+    (let ((words (split-string original "\\s+" t))
+          (idx 0)
+          (result '()))
+      (dolist (w words)
+        (let* ((start idx)
+               (end (+ idx (length w)))
+               (changes (cl-remove-if-not (lambda (c)
+                                            (and (>= (plist-get c :start) start)
+                                                 (<= (plist-get c :end) end)))
+                                          corrections))
+               (corr-word (lmwt-apply-corrections (substring original start end)
+                                                  (mapcar (lambda (c)
+                                                            (list :start (- (plist-get c :start) start)
+                                                                  :end (- (plist-get c :end) start)
+                                                                  :to-insert (plist-get c :to-insert)))
+                                                          changes))))
+          (unless (string= corr-word (substring original start end))
+            (push (list :start start :end end :to-insert corr-word) result))
+          (setq idx (+ end 1)))
+      (nreverse result))))
+
+(defun lmwt-clear-overlays ()
+  "Remove all LM Writing Tool overlays in the current buffer."
+  (remove-overlays (point-min) (point-max) 'lmwt-correction t))
+
+(defun lmwt-highlight-corrections ()
+  "Fetch diagnostics for the current buffer and highlight corrections."
+  (interactive)
+  (lmwt-clear-overlays)
+  (dolist (snippet (lmwt-split-buffer-by-line))
+    (let* ((text (lmwt-snippet-text snippet))
+           (diag (lmwt-get-text-snippet-diagnostic text))
+           (corrected (plist-get diag :corrected-version)))
+      (when (and corrected (not (string= text corrected)))
+        (dolist (c (lmwt-calculate-corrections text corrected))
+          (let* ((beg (+ (lmwt-snippet-beg snippet) (plist-get c :start)))
+                 (end (+ (lmwt-snippet-beg snippet) (plist-get c :end)))
+                 (ov (make-overlay beg end)))
+            (overlay-put ov 'face 'flymake-error)
+            (overlay-put ov 'lmwt-correction (plist-get c :to-insert))
+            (overlay-put ov 'help-echo (format "Replace with: %s" (plist-get c :to-insert))))))))
+
+;;;###autoload
+(defun lmwt-apply-correction ()
+  "Apply the correction at point, if any."
+  (interactive)
+  (let ((ov (cl-find-if (lambda (o) (overlay-get o 'lmwt-correction))
+                        (overlays-at (point)))))
+    (if ov
+        (let ((replacement (overlay-get ov 'lmwt-correction)))
+          (delete-region (overlay-start ov) (overlay-end ov))
+          (insert replacement)
+          (delete-overlay ov))
+      (message "No correction at point"))))
+
+;;;###autoload
+(defun lmwt-check-buffer ()
+  "Check current buffer for issues and highlight suggested corrections."
+  (interactive)
+  (lmwt-highlight-corrections))
 
 ;;;###autoload
 (define-minor-mode lm-writing-tool-mode

@@ -222,7 +222,7 @@ request is finished, CALLBACK is called with nil."
   "Abort all tasks associated with BUFFER."
   (let ((tasks (gethash buffer lmwt--buffer-tasks)))
     (when tasks
-      (setq lmwt--pending-tasks (cl-remove-if (lambda (t) (memq t tasks))
+      (setq lmwt--pending-tasks (cl-remove-if (lambda (task) (memq task tasks))
                                              lmwt--pending-tasks))
       (dolist (task (cl-copy-list tasks))
         (when (memq task lmwt--running-tasks)
@@ -338,14 +338,19 @@ Result is a list of plists with keys :value, :added and :removed."
 (defun lmwt-apply-corrections (text corrections)
   "Apply CORRECTIONS to TEXT and return the result.
 CORRECTIONS is a list of plists with :start, :end and :to-insert."
-  (let ((result text) (offset 0))
+  (let ((result text)
+        (offset 0))
     (dolist (c corrections)
       (let ((s (+ (plist-get c :start) offset))
             (e (+ (plist-get c :end) offset))
             (ins (plist-get c :to-insert)))
-        (setq result (concat (substring result 0 s) ins (substring result e)))
-        (setq offset (+ offset (- (length ins) (- (plist-get c :end)
-                                             (plist-get c :start)))))))
+        (setq result (concat (substring result 0 s)
+                             ins
+                             (substring result e)))
+        (setq offset (+ offset
+                        (- (length ins)
+                           (- (plist-get c :end)
+                              (plist-get c :start)))))))
     result))
 
 (defun lmwt-calculate-corrections (original corrected)
@@ -397,7 +402,7 @@ Returns a list of plists with :start, :end and :to-insert."
           (unless (string= corr-word (substring original start end))
             (push (list :start start :end end :to-insert corr-word) result))
           (setq idx (+ end 1)))
-      (nreverse result))))
+      (nreverse result)))))
 
 (defun lmwt-clear-overlays ()
   "Remove all LM Writing Tool overlays in the current buffer."
@@ -440,9 +445,9 @@ Requests are queued and limited by `lmwt-max-concurrent-requests'."
                                                 (funcall done))))))
              :abort (lambda ()
                       (when-let ((proc (lmwt-task-process task)))
-                        (kill-process proc)))))
-      (lmwt--register-task buf task)
-      (lmwt--queue-task task))))
+                        (kill-process proc))))))
+        (lmwt--register-task buf task)
+        (lmwt--queue-task task))))
 
 ;;;###autoload
 (defun lmwt-apply-correction ()

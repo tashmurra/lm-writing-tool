@@ -180,6 +180,69 @@ request is finished, CALLBACK is called with nil."
 (defvar lmwt--diagnostics-cache (make-hash-table :test 'equal)
   "Cache mapping text snippets to diagnostics.")
 
+(defcustom lmwt-max-concurrent-requests 3
+  "Maximum number of concurrent LLM requests."
+  :type 'integer
+  :group 'lm-writing-tool)
+
+(cl-defstruct lmwt-task buffer run abort process)
+
+(defvar lmwt--pending-tasks nil
+  "Queue of pending LLM tasks.")
+
+(defvar lmwt--running-tasks nil
+  "List of currently running LLM tasks.")
+
+(defvar lmwt--buffer-tasks (make-hash-table :test 'eq)
+  "Map buffers to their scheduled tasks.")
+
+(defun lmwt--queue-task (task)
+  "Enqueue TASK for execution."
+  (setq lmwt--pending-tasks (append lmwt--pending-tasks (list task)))
+  (lmwt--reschedule))
+
+(defun lmwt--reschedule ()
+  "Start pending tasks while respecting concurrency limits."
+  (while (and lmwt--pending-tasks
+              (< (length lmwt--running-tasks) lmwt-max-concurrent-requests))
+    (let ((task (pop lmwt--pending-tasks)))
+      (push task lmwt--running-tasks)
+      (funcall (lmwt-task-run task)
+               (lambda ()
+                 (setq lmwt--running-tasks (delq task lmwt--running-tasks))
+                 (lmwt--reschedule))))))
+
+(defun lmwt--register-task (buffer task)
+  "Register TASK for BUFFER so it can be aborted later."
+  (let ((tasks (gethash buffer lmwt--buffer-tasks)))
+    (push task tasks)
+    (puthash buffer tasks lmwt--buffer-tasks)))
+
+(defun lmwt--abort-buffer-tasks (buffer)
+  "Abort all tasks associated with BUFFER."
+  (let ((tasks (gethash buffer lmwt--buffer-tasks)))
+    (when tasks
+      (setq lmwt--pending-tasks (cl-remove-if (lambda (t) (memq t tasks))
+                                             lmwt--pending-tasks))
+      (dolist (task (cl-copy-list tasks))
+        (when (memq task lmwt--running-tasks)
+          (funcall (lmwt-task-abort task))
+          (setq lmwt--running-tasks (delq task lmwt--running-tasks))))
+      (remhash buffer lmwt--buffer-tasks)
+      (lmwt--reschedule))))
+
+(defun lmwt--abort-current-buffer ()
+  "Abort all tasks for the current buffer."
+  (lmwt--abort-buffer-tasks (current-buffer)))
+
+(add-hook 'kill-buffer-hook #'lmwt--abort-current-buffer)
+
+;;;###autoload
+(defun lmwt-stop-check-buffer ()
+  "Abort all running or queued checks for the current buffer."
+  (interactive)
+  (lmwt--abort-current-buffer))
+
 (cl-defstruct lmwt-snippet text beg end)
 
 (defun lmwt-split-buffer-by-line ()
@@ -341,21 +404,45 @@ Returns a list of plists with :start, :end and :to-insert."
   (remove-overlays (point-min) (point-max) 'lmwt-correction t))
 
 (defun lmwt-highlight-corrections ()
-  "Fetch diagnostics for the current buffer and highlight corrections."
+  "Fetch diagnostics for the current buffer and highlight corrections.
+Requests are queued and limited by `lmwt-max-concurrent-requests'."
   (interactive)
   (lmwt-clear-overlays)
+  (lmwt--abort-buffer-tasks (current-buffer))
   (dolist (snippet (lmwt-split-buffer-by-line))
     (let* ((text (lmwt-snippet-text snippet))
-           (diag (lmwt-get-text-snippet-diagnostic text))
-           (corrected (plist-get diag :corrected-version)))
-      (when (and corrected (not (string= text corrected)))
-        (dolist (c (lmwt-calculate-corrections text corrected))
-          (let* ((beg (+ (lmwt-snippet-beg snippet) (plist-get c :start)))
-                 (end (+ (lmwt-snippet-beg snippet) (plist-get c :end)))
-                 (ov (make-overlay beg end)))
-            (overlay-put ov 'face 'flymake-error)
-            (overlay-put ov 'lmwt-correction (plist-get c :to-insert))
-            (overlay-put ov 'help-echo (format "Replace with: %s" (plist-get c :to-insert))))))))
+           (beg (lmwt-snippet-beg snippet))
+           (buf (current-buffer))
+           (task nil))
+      (setq task
+            (make-lmwt-task
+             :buffer buf
+             :run (lambda (done)
+                    (let ((result ""))
+                      (setf (lmwt-task-process task)
+                            (lmwt-request text lmwt-proofreading-prompt
+                                          (lambda (chunk)
+                                            (if chunk
+                                                (setq result (concat result chunk))
+                                              (let ((diag (when (and result (string-prefix-p "Correction: " result))
+                                                            (list :corrected-version (substring result (length "Correction: "))))))
+                                                (puthash text diag lmwt--diagnostics-cache)
+                                                (when-let ((corrected (plist-get diag :corrected-version)))
+                                                  (when (buffer-live-p buf)
+                                                    (with-current-buffer buf
+                                                      (dolist (c (lmwt-calculate-corrections text corrected))
+                                                        (let* ((ov (make-overlay (+ beg (plist-get c :start))
+                                                                                (+ beg (plist-get c :end)))))
+                                                          (overlay-put ov 'face 'flymake-error)
+                                                          (overlay-put ov 'lmwt-correction (plist-get c :to-insert))
+                                                          (overlay-put ov 'help-echo (format "Replace with: %s"
+                                                                                          (plist-get c :to-insert)))))))))
+                                                (funcall done))))))
+             :abort (lambda ()
+                      (when-let ((proc (lmwt-task-process task)))
+                        (kill-process proc)))))
+      (lmwt--register-task buf task)
+      (lmwt--queue-task task))))
 
 ;;;###autoload
 (defun lmwt-apply-correction ()
